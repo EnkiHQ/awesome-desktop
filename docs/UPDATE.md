@@ -78,10 +78,10 @@ $env:DIB_UPDATE_URL = 'https://staging.example.com/desktop-icon-billiards/update
 
    产物为 `dist/DesktopIconBilliards-<version>-win-x64.exe`，脚本会打印大小和 SHA-256。
    旧版本产物不会被删除，方便回滚。
-3. 把 exe 上传为 CNB Release 附件，确认 HTTPS 下载链接无需登录即可访问，且下载文件的 SHA-256 与本地产物一致。
+3. 把同一个 exe 上传为 GitHub 和 CNB Release 附件，确认两边都能通过 HTTPS 匿名下载，且 SHA-256 与本地产物一致。
    文件名保持 `DesktopIconBilliards-<version>-win-x64.exe` 格式。
 4. 更新 JSON：把上一版顶层的 `version` 和 `notes` 移到 `history` 最前面，再写入新的
-   `version`、`download_url`、`notes`。发布地址和 `download_url` 必须一致。
+   `version`、`download_url`、`notes`。`download_url` 填本次 CNB 镜像的下载链接。
 5. 校验 JSON：能正常解析、版本号合法、整个文件不超过 65536 字节。
 6. 用旧版本客户端验证：启动后能看到新版本号与说明，「去更新」能打开正确的下载地址，
    取消后照常游戏。预发布源用 `DIB_UPDATE_URL` 验证，不要为此改代码。

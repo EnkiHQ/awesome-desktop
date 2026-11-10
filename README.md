@@ -8,9 +8,11 @@ Windows 10 / 11 x64 · 单文件 EXE · MIT
 
 ## 下载
 
-国内可直接从 CNB 下载 Windows 版。[下载 v0.1.0 EXE](https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.0/DesktopIconBilliards-0.1.0-win-x64.exe) · [全部版本](https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases)
+Windows 版 v0.1.0 为单文件 EXE。[GitHub 下载](https://github.com/liuxiaogang-com/desktop-icon-billiards/releases/download/v0.1.0/DesktopIconBilliards-0.1.0-win-x64.exe) · [CNB 国内镜像](https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.0/DesktopIconBilliards-0.1.0-win-x64.exe)
 
-仓库名为 `desktop-icon-billiards`。[CNB 主仓库](https://cnb.cool/liuxiaogang/desktop-icon-billiards)用于发布，[GitHub 仓库](https://github.com/liuxiaogang-com/desktop-icon-billiards)留存源码。官网预留入口为 [桌面图标台球](https://go.liuxiaogang.com/zmtq)，正式站点待上线。
+`desktop-icon-billiards` 的源码和发布附件在两个平台同步。[GitHub 仓库](https://github.com/liuxiaogang-com/desktop-icon-billiards) · [CNB 国内镜像仓库](https://cnb.cool/liuxiaogang/desktop-icon-billiards)
+
+官网入口为 [桌面图标台球](https://go.liuxiaogang.com/zmtq)。
 
 ## 玩法
 
