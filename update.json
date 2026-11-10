@@ -1,0 +1,6 @@
+{
+  "version": "0.1.0",
+  "download_url": "https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.0/DesktopIconBilliards-0.1.0-win-x64.exe",
+  "notes": "首个公开版本。把 Windows 桌面图标摆成一局台球，按住鼠标左键蓄力，松手击球。\n支持碰球和碰库辅助线、力度提示、本局计时、进球统计和清台结算；退出后恢复桌面布局。\n适用于 Windows 10 / 11 x64，单文件运行。",
+  "history": []
+}
