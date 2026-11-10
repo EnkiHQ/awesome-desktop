@@ -114,8 +114,11 @@ class DesktopBilliardsApp:
         self.time_value = tk.StringVar(root, value='00:00')
         self.count_title = tk.StringVar(root, value='图标入袋')
         self.count_value = tk.StringVar(root, value='—')
+        remaining_title = tk.StringVar(root, value='剩余图标')
+        self.remaining_value = tk.StringVar(root, value='—')
         for column, (title, value) in enumerate(((self.time_title, self.time_value),
-                                                (self.count_title, self.count_value))):
+                                                (self.count_title, self.count_value),
+                                                (remaining_title, self.remaining_value))):
             stats.columnconfigure(column, weight=1, uniform='stats')
             ttk.Label(stats, textvariable=title, style='StatTitle.TLabel').grid(row=0, column=column, sticky='w')
             ttk.Label(stats, textvariable=value, style='StatValue.TLabel').grid(row=1, column=column, sticky='w')
@@ -303,10 +306,12 @@ class DesktopBilliardsApp:
                 minutes, seconds = divmod(table.round_seconds, 60)
                 self.time_value.set(f'{minutes:02d}:{seconds:02d}')
                 total = len(table.icons)
+                pocketed = table.pocketed_icons
                 finished = state == 'finished'
                 self.time_title.set('总用时' if finished else '本局用时')
                 self.count_title.set('图标总数' if finished else '图标入袋')
-                self.count_value.set(str(total) if finished else f'{table.pocketed_icons}/{total}')
+                self.count_value.set(str(total) if finished else f'{pocketed}/{total}')
+                self.remaining_value.set(str(total - pocketed))
             self.root.after(50, self.poll)
         except Exception as exc:
             self.fail(exc)
