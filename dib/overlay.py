@@ -167,14 +167,15 @@ class LayerSurface:
             if not self.bitmap:
                 raise ctypes.WinError()
             self.old = win32gui.SelectObject(self.dc, self.bitmap)
-            self.point = win32gui.ClientToScreen(win32gui.GetParent(hwnd), (x, y))
+            self.point = (x, y)
         except Exception:
             self.close()
             raise
 
     def present(self, frame, x=None, y=None):
         if x is not None:
-            self.point = win32gui.ClientToScreen(win32gui.GetParent(self.hwnd), (x, y))
+            # Layered child windows take coordinates relative to their parent.
+            self.point = (x, y)
         if frame is not self.last_frame:
             data = frame.convert('RGBa').tobytes('raw', 'BGRa')
             ctypes.memmove(self.bits, data, len(data))
@@ -261,20 +262,15 @@ class BilliardsOverlay:
         self.primary_work = primary[2]
         self.primary_bounds = map_rect(primary[2], (0, 0), parent_origin)
         self.charge_font = _load_font(max(12, round(14 * primary[3] / 96)))
-        client = win32gui.GetClientRect(self.parent)
-        self.positions = []
-        for icon, label in self.rects:
+        left, top, right, bottom = win32gui.GetClientRect(self.parent)
+        x0, y0, x1, y1 = self.primary_bounds
+        if not (left <= x0 < x1 <= right and top <= y0 < y1 <= bottom):
+            raise RuntimeError('桌面绘制窗口未覆盖主屏幕，已保留原桌面图标。')
+        self.empty_frame = Image.new('RGBA', (1, 1))
+        for icon, _ in self.rects:
             center = (round((icon[0] + icon[2]) / 2), round((icon[1] + icon[3]) / 2))
             screen = win32gui.ClientToScreen(self.parent, center)
-            self.positions.append(center)
             monitor = win32api.MonitorFromPoint(screen, win32con.MONITOR_DEFAULTTONEAREST)
-            work = win32api.GetMonitorInfo(monitor)['Work']
-            left, top, right, bottom = map_rect(work, (0, 0), parent_origin)
-            area = (max(client[0], left), max(client[1], top), min(client[2], right), min(client[3], bottom))
-            if area[2] <= area[0] or area[3] <= area[1]:
-                raise RuntimeError('桌面绘制窗口未覆盖全部显示器，已保留原桌面图标。')
-            if not (client[0] <= center[0] < client[2] and client[1] <= center[1] < client[3]):
-                raise RuntimeError('桌面绘制窗口未覆盖全部显示器，已保留原桌面图标。')
             info = win32api.GetMonitorInfo(monitor)
             dpi = next(m[3] for m in self.monitor_state if m[0] == info['Device'])
             self.fonts.append(_load_font(max(9, round(12 * dpi / 96))))
@@ -621,6 +617,14 @@ class BilliardsOverlay:
         self.white_position = None
 
     def present(self, hwnd, frame, x, y):
+        left, top, right, bottom = self.primary_bounds
+        x0, y0 = max(left, x), max(top, y)
+        x1, y1 = min(right, x + frame.width), min(bottom, y + frame.height)
+        if x0 >= x1 or y0 >= y1:
+            frame, x, y = self.empty_frame, left, top
+        elif (x0, y0, x1, y1) != (x, y, x + frame.width, y + frame.height):
+            frame = frame.crop((x0 - x, y0 - y, x1 - x, y1 - y))
+            x, y = x0, y0
         if hwnd in self.surfaces and self.surfaces[hwnd].size != frame.size:
             self.surfaces.pop(hwnd).close()
         if hwnd not in self.surfaces:
