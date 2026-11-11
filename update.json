@@ -1,8 +1,12 @@
 {
-  "version": "0.1.1",
-  "download_url": "https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.1/DesktopIconBilliards-0.1.1-win-x64.exe",
-  "notes": "新增「剩余图标」统计，进袋后即时更新。清台时显示 0，重新开局后恢复为本局图标总数。",
+  "version": "0.1.2",
+  "download_url": "https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.2/DesktopIconBilliards-0.1.2-win-x64.exe",
+  "notes": "修复多屏环境下球台错位和画面跨屏的问题。球台、图标动画和击球提示只在 Windows 主屏幕的工作区显示。",
   "history": [
+    {
+      "version": "0.1.1",
+      "notes": "新增「剩余图标」统计，进袋后即时更新。清台时显示 0，重新开局后恢复为本局图标总数。"
+    },
     {
       "version": "0.1.0",
       "notes": "首个公开版本。把 Windows 桌面图标摆成一局台球，按住鼠标左键蓄力，松手击球。\n支持碰球和碰库辅助线、力度提示、本局计时、进球统计和清台结算；退出后恢复桌面布局。\n适用于 Windows 10 / 11 x64，单文件运行。"
