@@ -66,7 +66,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # Optional pywin32 GUI helpers pull in MFC, which the game does not use.
+    excludes=['win32ui'],
     noarchive=False,
     optimize=0,
 )

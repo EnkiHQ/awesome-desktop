@@ -18,7 +18,6 @@ import win32api
 import win32con
 import win32gui
 import win32process
-import win32ui
 from PIL import Image, ImageDraw, ImageFont
 
 from .art import charge_art, cue_art, guide_art, pocket_particles, table_art, white_art
@@ -65,12 +64,35 @@ def artwork(identity, size):
     ShellDesktop._invoke(factory, 3, [W.SIZE, W.UINT, ctypes.POINTER(W.HBITMAP)],
                          W.SIZE(size, size), 0, ctypes.byref(bitmap))
     try:
-        source = win32ui.CreateBitmapFromHandle(bitmap.value)
-        info = source.GetInfo()
-        image = Image.frombytes('RGBA', (info['bmWidth'], info['bmHeight']), source.GetBitmapBits(True), 'raw', 'BGRA')
-        return _unpremultiply(image)
+        return _unpremultiply(_bitmap_image(bitmap.value))
     finally:
         win32gui.DeleteObject(bitmap.value)
+
+
+def _bitmap_image(bitmap):
+    """Copy an unselected Shell bitmap into a top-down, 32-bit BGRA buffer."""
+    get_bits = ctypes.WinDLL('gdi32', use_last_error=True).GetDIBits
+    get_bits.argtypes = [W.HDC, W.HBITMAP, W.UINT, W.UINT, ctypes.c_void_p, ctypes.c_void_p, W.UINT]
+    get_bits.restype = ctypes.c_int
+    header_format = '<IiiHHIIiiII'
+    header = ctypes.create_string_buffer(struct.calcsize(header_format))
+    struct.pack_into('<I', header, 0, ctypes.sizeof(header))
+    dc = win32gui.CreateCompatibleDC(0)
+    try:
+        if not get_bits(dc, bitmap, 0, 0, None, header, 0):
+            raise ctypes.WinError(ctypes.get_last_error())
+        _, width, height, *_ = struct.unpack(header_format, header)
+        height = abs(height)
+        if width <= 0 or height <= 0:
+            raise ValueError('Invalid Shell bitmap dimensions')
+        pixels = ctypes.create_string_buffer(width * height * 4)
+        struct.pack_into(header_format, header, 0, ctypes.sizeof(header),
+                         width, -height, 1, 32, 0, ctypes.sizeof(pixels), 0, 0, 0, 0)
+        if get_bits(dc, bitmap, 0, height, pixels, header, 0) != height:
+            raise ctypes.WinError(ctypes.get_last_error())
+        return Image.frombytes('RGBA', (width, height), pixels.raw, 'raw', 'BGRA')
+    finally:
+        win32gui.DeleteDC(dc)
 
 
 def desktop_listview():
