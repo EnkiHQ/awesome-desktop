@@ -114,11 +114,12 @@ class MainPanel:
         'update': {'text': '检查更新', 'kind': 'ghost'},
     }
 
-    def __init__(self, root, version, callbacks, layout='card'):
+    def __init__(self, root, version, callbacks, layout='card', credit=''):
         configure_styles(root)
         root.configure(bg=BG)
         self.root = root
         self.version = version
+        self.credit = credit
         self.callbacks = callbacks
         self.shell = None
         self.layout = None
@@ -189,6 +190,15 @@ class MainPanel:
         self._paint_tone()
         self.root.update_idletasks()
 
+    def _credit(self, parent, prefix=''):
+        """``prefix`` plus the author's handle; clicking the handle opens the author's page."""
+        box = tk.Frame(parent, bg=parent.cget('bg'))
+        tk.Label(box, text=prefix, font=(FONT, 8), fg=MUTED, bg=parent.cget('bg')).pack(side='left')
+        link = tk.Label(box, text=self.credit, font=(FONT, 8), fg=ACCENT, bg=parent.cget('bg'), cursor='hand2')
+        link.pack(side='left')
+        link.bind('<ButtonRelease-1>', lambda event: self.callbacks['open_credit']())
+        return box
+
     def _status_row(self, parent, wraplength, font_size=9):
         row = tk.Frame(parent, bg=BG)
         self.dot = tk.Canvas(row, width=10, height=10, bg=BG, highlightthickness=0)
@@ -214,7 +224,7 @@ class MainPanel:
         head = tk.Frame(shell, bg=BG)
         head.pack(fill='x')
         tk.Label(head, text='桌面图标台球', font=(FONT, 12, 'bold'), fg=TEXT, bg=BG).pack(side='left')
-        tk.Label(head, text=f'v{self.version}', font=(FONT, 8), fg=MUTED, bg=BG).pack(side='right', pady=(4, 0))
+        self._credit(head, f'v{self.version}  ').pack(side='right', pady=(4, 0))
         self._status_row(shell, CONTENT_WIDTH - 20).pack(fill='x', pady=(8, 10))
 
         stats = tk.Frame(shell, bg=CARD, padx=14, pady=10)
@@ -267,8 +277,11 @@ class MainPanel:
         self._status_row(left, 230).pack(anchor='w')
         tk.Label(left, textvariable=self.rank_first, font=(FONT, 8), fg=MUTED, bg=BG, anchor='w',
                  wraplength=250).pack(anchor='w', padx=(19, 0))
-        buttons = tk.Frame(shell, bg=BG)
-        buttons.pack(side='right')
+        right = tk.Frame(shell, bg=BG)
+        right.pack(side='right')
+        buttons = tk.Frame(right, bg=BG)
+        buttons.pack()
+        self._credit(right).pack(anchor='e', pady=(4, 0))
         more = Pill(buttons, '⋯', lambda: None, 'soft', padx=9, pady=5)
         more.command = lambda: self._popup(self._more_menu(), more)
         for key, text, command, kind, bold in (
@@ -305,6 +318,7 @@ class MainPanel:
         more = Pill(shell, '⋯  更多', lambda: None, 'ghost', pady=4)
         more.command = lambda: self._popup(self._more_menu(), more)
         more.pack(fill='x')
+        self._credit(shell).pack(anchor='w', pady=(6, 0))
 
     # -- menus -----------------------------------------------------------------
     def _new_menu(self):
@@ -346,7 +360,7 @@ class ResultDialog:
     ``rank`` (phase ``off`` / ``unavailable`` / ``skipped`` / ``pending`` / ``ok`` / ``error``).
     """
 
-    def __init__(self, root, callbacks):
+    def __init__(self, root, callbacks, credit=''):
         self.callbacks = callbacks
         self.top = tk.Toplevel(root)
         top = self.top
@@ -359,7 +373,13 @@ class ResultDialog:
         shell = tk.Frame(top, bg=BG, padx=22, pady=18)
         shell.pack(fill='both', expand=True)
         tk.Frame(shell, width=340, height=0, bg=BG).pack()
-        tk.Label(shell, text='清台完成', font=(FONT, 11, 'bold'), fg=ACCENT, bg=BG).pack(anchor='w')
+        title = tk.Frame(shell, bg=BG)
+        title.pack(fill='x')
+        tk.Label(title, text='清台完成', font=(FONT, 11, 'bold'), fg=ACCENT, bg=BG).pack(side='left')
+        if credit:
+            link = tk.Label(title, text=credit, font=(FONT, 8), fg=MUTED, bg=BG, cursor='hand2')
+            link.pack(side='right', pady=(3, 0))
+            link.bind('<ButtonRelease-1>', lambda event: callbacks['open_credit']())
         tk.Label(shell, textvariable=self.vars['time'], font=(NUMBERS, 34), fg=TEXT, bg=BG).pack(anchor='w', pady=(2, 0))
         tk.Label(shell, text='总用时', font=(FONT, 8), fg=MUTED, bg=BG).pack(anchor='w')
 

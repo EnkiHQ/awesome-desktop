@@ -27,6 +27,25 @@ class TableArtTests(unittest.TestCase):
             self.assertGreater(alpha, 90)
             self.assertLess(alpha, 200)
 
+    def test_credit_is_drawn_faintly_in_the_bottom_margin_between_pockets(self):
+        game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
+        plain, ox, oy = table_art(game)
+        credited, _, _ = table_art(game, None, 'GitHub@liuxiaogang-com')
+        left, top, right, bottom = game.bounds
+        # The text lives in the margin below the table, around three quarters of the way across.
+        x0, x1 = round(left + game.width * .55 - ox), round(left + game.width * .95 - ox)
+        y0, y1 = round(bottom - oy), round(game.work_area[3] - oy)
+        region = (x0, y0, x1, y1)
+        changed = [(x, y) for x in range(x0, x1) for y in range(y0, y1)
+                   if plain.getpixel((x, y)) != credited.getpixel((x, y))]
+        self.assertGreater(len(changed), 40)
+        # Faint: nothing is painted fully opaque, and the table itself is untouched.
+        self.assertTrue(all(credited.getpixel(point)[3] < 200 for point in changed))
+        self.assertEqual(plain.crop((0, 0, plain.width, y0 - 1)).tobytes(),
+                         credited.crop((0, 0, credited.width, y0 - 1)).tobytes())
+        self.assertEqual(plain.getpixel((x0, y0)), table_art(game, None, '')[0].getpixel((x0, y0)))
+        self.assertTrue(region)
+
     def test_frame_origin_is_the_work_area_origin(self):
         game = BilliardsMotion((100, 50, 1700, 1050), [(64, 64)] * 2)
         frame, origin_x, origin_y = table_art(game)

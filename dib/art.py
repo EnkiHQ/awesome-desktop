@@ -5,11 +5,22 @@ alpha layered windows by the shell.
 """
 import math
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
-def table_art(table, wallpaper=None):
-    """Draw the table frame and pockets; returns ``(frame, origin_x, origin_y)``."""
+def _credit_font(size):
+    try:
+        return ImageFont.truetype('C:/Windows/Fonts/msyh.ttc', size)
+    except OSError:
+        return ImageFont.load_default(size)
+
+
+def table_art(table, wallpaper=None, credit=None):
+    """Draw the table frame and pockets; returns ``(frame, origin_x, origin_y)``.
+
+    ``credit`` is a short source line drawn faintly in the margin below the table, between two
+    pockets, so recordings of the game keep their origin.
+    """
     left, top, right, bottom = table.bounds
     width = right - left
     height = bottom - top
@@ -48,6 +59,13 @@ def table_art(table, wallpaper=None):
         inset = r * .23
         draw.ellipse((x - r + inset, y - r + inset, x + r - inset, y + r - inset),
                      fill=(4, 10, 11, 120 if minimal else 255))
+    if credit:
+        font = _credit_font(round(max(11, height / 66)))
+        margin = (table.work_area[3] - bottom) if table.desktop else 0
+        cx = left + width * .75 - origin_x
+        cy = bottom - origin_y + max(14, margin * .46)
+        draw.text((cx, cy), credit, font=font, anchor='mm', fill=(255, 255, 255, 140),
+                  stroke_width=1, stroke_fill=(0, 0, 0, 90))
     return frame, origin_x, origin_y
 
 

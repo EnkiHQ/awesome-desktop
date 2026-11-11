@@ -23,6 +23,7 @@ import win32process
 from PIL import Image, ImageDraw, ImageFont
 
 from . import diag
+from .config import CREDIT
 from .art import charge_art, cue_art, guide_art, pocket_particles, table_art, white_art
 from .balls import MAX_BALLS, ball_summary, fill_sources, priority_order
 from .display import monitors
@@ -447,7 +448,7 @@ class BilliardsOverlay:
                 self.luma_map = wallpaper.convert('L').resize(
                     (max(1, wallpaper.width // LUMA_CELL), max(1, wallpaper.height // LUMA_CELL)),
                     Image.Resampling.BOX)
-            self.rail_frame = table_art(self.table, wallpaper)
+            self.rail_frame = table_art(self.table, wallpaper, CREDIT)
         finally:
             comtypes.CoUninitialize()
 

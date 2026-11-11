@@ -16,6 +16,10 @@ PRODUCT_NAME = '桌面图标台球'
 PRODUCT_NAME_EN = 'Desktop Icon Billiards'
 INTERNAL_NAME = 'DesktopIconBilliards'
 AUTHOR = 'LXG'
+# Shown next to the version, in the compact layouts, on the result window and faintly on the
+# table, so screenshots and recordings of the game keep their source.
+CREDIT = 'GitHub@liuxiaogang-com'
+CREDIT_URL = 'https://github.com/liuxiaogang-com'
 WINDOW_TITLE = f'{PRODUCT_NAME} {VERSION}'
 
 BASE = Path(__file__).resolve().parent.parent

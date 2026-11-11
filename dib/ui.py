@@ -91,8 +91,8 @@ class DesktopBilliardsApp:
             'restart': self.restart, 'toggle_guide': self.toggle_guide, 'toggle_rank': self.toggle_rank,
             'check_updates': lambda: self.check_updates(manual=True), 'donate': self.show_donation,
             'quit': self.close, 'toggle_hide': self.toggle_hide, 'toggle_felt': self.toggle_felt,
-            'set_layout': self.apply_layout,
-        }, self.settings.get('layout', 'card'))
+            'set_layout': self.apply_layout, 'open_credit': self.open_credit,
+        }, self.settings.get('layout', 'card'), config.CREDIT)
         self.status, self.rank_text, self.update_feedback = panel.status, panel.rank_text, panel.update_feedback
         self.time_title, self.time_value = panel.time_title, panel.time_value
         self.count_title, self.count_value = panel.count_title, panel.count_value
@@ -403,7 +403,8 @@ class DesktopBilliardsApp:
         if finished and self.result_serial != table.round_serial and not self.hidden:
             self.result_serial = table.round_serial
             self.result_dialog = ResultDialog(self.root, {'again': self.play_again,
-                                                          'enable_rank': self.enable_rank_from_dialog})
+                                                          'enable_rank': self.enable_rank_from_dialog,
+                                                          'open_credit': self.open_credit}, config.CREDIT)
         dialog = self.result_dialog
         if dialog is None:
             return
@@ -422,6 +423,10 @@ class DesktopBilliardsApp:
                 'note': overlay.ball_info,
                 'rank': self.rank.view(table),
             })
+
+    @staticmethod
+    def open_credit():
+        webbrowser.open(config.CREDIT_URL)
 
     def play_again(self):
         if self.result_dialog is not None:
