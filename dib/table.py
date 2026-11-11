@@ -11,7 +11,7 @@ from collections import defaultdict
 from .body import Body
 
 # How long a sinking icon keeps its exit animation.
-EXIT_SECONDS = .72
+EXIT_SECONDS = .62
 MIN_SHOT_CHARGE = .18
 RAIL_REBOUND = .88
 BALL_IMPULSE = .96
@@ -71,6 +71,7 @@ class BilliardsMotion:
         self.round_serial += 1
         self.first_shot_at = None
         self.finished_at = None
+        self.paused_at = None
         self.shots = 0
         self.clock = 0.
         self.stroke = 0.
@@ -98,6 +99,20 @@ class BilliardsMotion:
     @property
     def round_seconds(self):
         return self.play_ms // 1000
+
+    def pause(self, now):
+        """Freeze the round (the game is hidden). Nothing is simulated until :meth:`resume`."""
+        if self.paused_at is None:
+            self.paused_at = now
+
+    def resume(self, now):
+        """Continue after a pause; the hidden time does not count towards the round."""
+        if self.paused_at is None:
+            return
+        gap = max(0., now - self.paused_at)
+        if self.first_shot_at is not None and self.finished_at is None:
+            self.first_shot_at += gap
+        self.paused_at = None
 
     def _aim(self):
         x, y = self.white.x, self.white.y
@@ -360,24 +375,28 @@ class BilliardsMotion:
                      if (body.x - x) ** 2 + (body.y - y) ** 2 < capture * capture), None)
 
     def _start_exit(self, index, body, pocket):
+        # The icon is drawn into the pocket centre, which always lies inside the work area.
         px, py = pocket
-        left, top, right, bottom = self.work_area
-        rail_left, rail_top, rail_right, _ = self.bounds
-        # Keep the icon and the small particle halo inside the outer work area.
-        inset = min(48, max(5, (rail_top - top) * .42))
-        tx = left + inset if px == rail_left else right - inset if px == rail_right else px
-        ty = top + inset if py == rail_top else bottom - inset
-        self.exits[index] = (body.x, body.y, tx, ty, 0.)
+        self.exits[index] = (body.x, body.y, px, py, 0.)
 
     def exit_visual(self, index):
+        """Return ``(x, y, fade, scale, spin)`` for a sinking icon, or None once it is gone.
+
+        The icon slides to the pocket centre while shrinking and turning, then fades out.
+        """
         exit_state = self.exits.get(index)
         if exit_state is None:
             return None
         x, y, tx, ty, age = exit_state
-        progress = age / EXIT_SECONDS
-        travel = 1 - (1 - min(1, progress / .73)) ** 2
-        fade = max(0, min(1, (progress - .40) / .60))
-        return x + (tx - x) * travel, y + (ty - y) * travel, fade
+        progress = min(1., age / EXIT_SECONDS)
+        slide = min(1., progress / .5)
+        travel = slide * slide * (3 - 2 * slide)
+        fade = max(0., min(1., (progress - .40) / .60))
+        shrink = max(0., min(1., (progress - .10) / .80))
+        scale = 1 - .70 * shrink * shrink * (3 - 2 * shrink)
+        left, _, right, _ = self.work_area
+        spin = (260 if tx < (left + right) / 2 else -260) * progress ** 2
+        return x + (tx - x) * travel, y + (ty - y) * travel, fade, scale, spin
 
     def place_white(self, x, y):
         if self.state != 'ball_in_hand':

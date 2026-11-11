@@ -382,6 +382,46 @@ class ControllerTests(unittest.TestCase):
         self.observe_until(lambda: self.rank.round_id == ROUND)
         self.assertEqual(self.api.names()[0], 'register')
 
+    def test_view_follows_the_round_for_the_result_dialog(self):
+        self.assertEqual(self.rank.view(self.game), {'phase': 'off'})
+        self.assertEqual(RankController(None, None).view(self.game), {'phase': 'unavailable'})
+        self.rank.set_enabled(True)
+        self.observe_until(lambda: self.rank.round_id == ROUND)
+        self.assertEqual(self.rank.view(self.game), {'phase': 'pending'})
+        play_round(self.game)
+        self.observe_until(lambda: self.rank.outcome is not None)
+        view = self.rank.view(self.game)
+        self.assertEqual(view['phase'], 'ok')
+        self.assertEqual(view['rank_text'], '第 1,204 名')
+        self.assertEqual(view['percentile_text'], '超过 87% 的玩家')
+        self.assertEqual(view['best_text'], '新的个人最佳 · 个人最佳第 860 名 · 共 10,532 人')
+        self.assertTrue(view['new_best'])
+
+    def test_view_reports_errors_skips_and_the_unrankable(self):
+        self.rank.set_enabled(True)
+        self.observe_until(lambda: self.rank.round_id == ROUND)
+        self.api.finish_error = RankError('too_fast', 422)
+        play_round(self.game)
+        self.observe_until(lambda: self.rank.outcome is not None)
+        self.assertEqual(self.rank.view(self.game), {'phase': 'error', 'message': ERROR_TEXT['too_fast']})
+        self.game.reset()
+        self.rank.observe(self.game)
+        self.assertEqual(self.rank.view(self.game)['phase'], 'pending')  # a new round forgets the old outcome
+
+        late = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * MIN_BALLS)
+        late.step(.01, 1)
+        late.shoot(1, 2.0)
+        self.rank.set_enabled(False)
+        self.rank.set_enabled(True)
+        self.rank.observe(late)
+        self.assertEqual(self.rank.view(late)['phase'], 'skipped')
+
+        crowded = BilliardsMotion((0, 0, 3200, 1800), [(64, 64)] * (MAX_RANKED_BALLS + 1))
+        fresh = RankController(self.api, self.settings, hash_function=lambda settings: 'h' * 64)
+        self.addCleanup(fresh.close)
+        fresh.observe(crowded)
+        self.assertEqual(fresh.view(crowded)['phase'], 'skipped')
+
     def test_the_player_is_asked_once_and_can_decline(self):
         self.assertTrue(self.rank.needs_prompt)
         self.rank.mark_prompted()

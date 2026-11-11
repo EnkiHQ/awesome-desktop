@@ -43,6 +43,7 @@ ERROR_TEXT = {
     'stale_timestamp': '系统时间不准，请校准后重试',
     'too_fast': '成绩校验未通过，本局不计入排名',
     'round_invalid': '成绩校验未通过，本局不计入排名',
+    'no_round': '未能连接排名服务，本局不计入排名',
     'implausible_time': '成绩校验未通过，本局不计入排名',
 }
 
@@ -227,6 +228,7 @@ class RankController:
         self.skip = False
         self.submitted = None
         self.status = []
+        self.outcome = None  # ('ok', server data) or ('error', code) once the round was answered
 
     # -- state -------------------------------------------------------------
     @property
@@ -289,6 +291,39 @@ class RankController:
             return [f'图标超过 {MAX_RANKED_BALLS} 个，本局不计入排名']
         return ['全球排名已开启 · 清台后提交成绩']
 
+    def view(self, table):
+        """The ranking outcome of the current round as plain data for the result dialog.
+
+        ``phase`` is ``unavailable`` (no server configured), ``off`` (not joined), ``skipped``,
+        ``pending``, ``ok`` (with formatted ``rank_text`` / ``percentile_text`` / ``best_text``)
+        or ``error`` (with a ``message``).
+        """
+        if not self.available:
+            return {'phase': 'unavailable'}
+        if not self.enabled:
+            return {'phase': 'off'}
+        if self.skip:
+            return {'phase': 'skipped', 'message': '本局开始后才开启排名，下一局起计入。'}
+        if not is_rankable(len(table.icons)):
+            return {'phase': 'skipped', 'message': f'图标超过 {MAX_RANKED_BALLS} 个，本局不计入排名。'}
+        if self.outcome is None:
+            return {'phase': 'pending'}
+        kind, payload = self.outcome
+        if kind == 'ok':
+            try:
+                this, best = payload['round'], payload['best']
+                return {
+                    'phase': 'ok',
+                    'rank_text': f'第 {this["rank"]:,} 名',
+                    'percentile_text': f'超过 {this["percentile"]}% 的玩家',
+                    'best_text': ('新的个人最佳 · ' if payload.get('is_personal_best') else '')
+                                 + f'个人最佳第 {best["rank"]:,} 名 · 共 {payload["total_players"]:,} 人',
+                    'new_best': bool(payload.get('is_personal_best')),
+                }
+            except (KeyError, TypeError, ValueError):
+                payload = 'bad_response'
+        return {'phase': 'error', 'message': ERROR_TEXT.get(payload, '排名服务暂不可用，本局成绩未提交')}
+
     def _begin(self, table):
         self.serial = table.round_serial
         self.round_id = None
@@ -296,6 +331,7 @@ class RankController:
         self.shot_seen = False
         self.submitted = None
         self.status = []
+        self.outcome = None
         self.start_token += 1  # invalidate answers that belong to the previous round
         # Enabled in the middle of a round: it cannot be verified, so it is not ranked.
         self.skip = table.first_shot_at is not None
@@ -319,7 +355,8 @@ class RankController:
     def _finish(self, table):
         self.submitted = self.serial
         if self.round_id is None:
-            self.status = ['未能连接排名服务，本局不计入排名']
+            self.status = [ERROR_TEXT['no_round']]
+            self.outcome = ('error', 'no_round')
             return
         self.status = ['正在提交成绩…']
         serial, round_id = self.serial, self.round_id
@@ -351,8 +388,10 @@ class RankController:
             elif event[1] == self.serial:
                 if kind == 'failed':
                     self.status = [ERROR_TEXT.get(event[2], '排名服务暂不可用，本局成绩未提交')]
+                    self.outcome = ('error', event[2])
                 else:
                     self.status = self._describe(event[2])
+                    self.outcome = ('ok', event[2])
 
     @staticmethod
     def _describe(data):

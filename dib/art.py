@@ -42,10 +42,12 @@ def table_art(table, wallpaper=None):
     for px, py in table.pockets:
         x = px - origin_x
         y = py - origin_y
-        draw.ellipse((x - r, y - r, x + r, y + r), fill=(11, 22, 21, 215 if minimal else 248),
-                     outline=(105, 221, 179, 135) if minimal else (153, 116, 77, 255), width=2 if minimal else 3)
+        # Minimal tables keep the pockets light: a soft ring and a translucent hole, not black discs.
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=(11, 22, 21, 100 if minimal else 248),
+                     outline=(105, 221, 179, 105) if minimal else (153, 116, 77, 255), width=2 if minimal else 3)
         inset = r * .23
-        draw.ellipse((x - r + inset, y - r + inset, x + r - inset, y + r - inset), fill=(4, 10, 11, 255))
+        draw.ellipse((x - r + inset, y - r + inset, x + r - inset, y + r - inset),
+                     fill=(4, 10, 11, 120 if minimal else 255))
     return frame, origin_x, origin_y
 
 
@@ -183,18 +185,21 @@ def white_art(radius, shaded=False):
 
 
 def pocket_particles(frame, index, fade):
-    """Draw the ring of sparks that follows a sinking icon."""
+    """Draw the ripple and the few sparks that accompany an icon sinking into a pocket."""
     frame = frame.copy()
     draw = ImageDraw.Draw(frame)
     center = frame.width / 2
-    for i in range(9):
-        angle = i * math.tau / 9 + index * .61
-        distance = fade * (20 + i % 3 * 8)
+    glow = math.sin(math.pi * fade) ** .65  # 0 at both ends, strongest mid-way
+    radius = 10 + fade * 32
+    draw.ellipse((center - radius, center - radius, center + radius, center + radius),
+                 outline=(173, 255, 221, round(150 * glow)), width=2)
+    for i in range(6):
+        angle = i * math.tau / 6 + index * .61
+        distance = fade * (12 + i % 3 * 7)
         x = center + math.cos(angle) * distance
         y = center + math.sin(angle) * distance
-        size = max(.7, (1 - fade) * (2.5 + i % 3))
-        alpha = round(230 * math.sin(math.pi * fade) ** .65)
-        draw.ellipse((x - size, y - size, x + size, y + size), fill=(173, 255, 221, alpha))
+        size = max(.7, (1 - fade) * (2 + i % 2))
+        draw.ellipse((x - size, y - size, x + size, y + size), fill=(173, 255, 221, round(210 * glow)))
     return frame
 
 

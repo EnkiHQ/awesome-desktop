@@ -39,3 +39,7 @@ EXE_PATTERN = r'DesktopIconBilliards-(\d+\.\d+\.\d+)-win-x64\.exe'
 HOTKEY_ID = 0x5A32
 HOTKEY_MODIFIERS = 0x4000 | 0x2 | 0x1  # MOD_NOREPEAT | MOD_CONTROL | MOD_ALT
 HOTKEY_VK = 0x58  # X
+
+# Ctrl+Alt+H hides the game and shows the real desktop (boss key); press it again to continue.
+HIDE_HOTKEY_ID = 0x5A33
+HIDE_HOTKEY_VK = 0x48  # H

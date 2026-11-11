@@ -23,9 +23,9 @@ from . import config, diag
 from .display import dpi_context
 from .instance import acquire_instance, claim_instance_mutex, publish_version
 from .overlay import BilliardsOverlay
-from .panel import MainPanel, show_update_dialog
+from .panel import MainPanel, ResultDialog, format_duration, show_update_dialog
 from .paths import runtime_directory
-from .rank import RankApi, RankController, RankSettings, data_directory
+from .rank import RankApi, RankController, RankSettings, average_seconds, data_directory
 from .runner import BilliardsRunner
 from .shell import LayoutSession, ShellDesktop
 from .update import fetch_update, release_entries
@@ -81,26 +81,30 @@ class DesktopBilliardsApp:
         self.rank = self.make_rank()
         self.rank_offered = False
         self.guide_enabled = True
+        self.hidden = False
+        self.result_dialog = None
+        self.result_serial = None
         self.update_results = queue.SimpleQueue()
+        self.settings = self.make_settings()
+        self.felt_enabled = bool(self.settings.get('felt', True))
         self.panel = panel = MainPanel(root, config.VERSION, {
             'restart': self.restart, 'toggle_guide': self.toggle_guide, 'toggle_rank': self.toggle_rank,
             'check_updates': lambda: self.check_updates(manual=True), 'donate': self.show_donation,
-            'quit': self.close,
-        })
+            'quit': self.close, 'toggle_hide': self.toggle_hide, 'toggle_felt': self.toggle_felt,
+            'set_layout': self.apply_layout,
+        }, self.settings.get('layout', 'card'))
         self.status, self.rank_text, self.update_feedback = panel.status, panel.rank_text, panel.update_feedback
         self.time_title, self.time_value = panel.time_title, panel.time_value
         self.count_title, self.count_value = panel.count_title, panel.count_value
         self.remaining_value = panel.remaining_value
-        self.guide_button, self.update_button, self.rank_button = panel.guide_button, panel.update_button, panel.rank_button
-        self.refresh_rank_button()
+        self.refresh_buttons()
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.bind('<Escape>', lambda event: self.close())
-        root.update_idletasks()
-        monitor = win32api.MonitorFromPoint((0, 0), win32con.MONITOR_DEFAULTTOPRIMARY)
-        left, top, right, _ = win32api.GetMonitorInfo(monitor)['Work']
-        root.geometry(f'+{max(left, right - root.winfo_reqwidth() - 18)}+{top + 8}')
+        self.place_window(panel.layout)
         self.hotkey = bool(ctypes.windll.user32.RegisterHotKey(
             None, config.HOTKEY_ID, config.HOTKEY_MODIFIERS, config.HOTKEY_VK))
+        self.hide_hotkey = bool(ctypes.windll.user32.RegisterHotKey(
+            None, config.HIDE_HOTKEY_ID, config.HOTKEY_MODIFIERS, config.HIDE_HOTKEY_VK))
         root.after(20, self.start)
         root.after(1500, self.check_updates)
 
@@ -115,12 +119,61 @@ class DesktopBilliardsApp:
                 _write_log('rank.log', traceback.format_exc())
         return RankController(None, None)
 
+    @staticmethod
+    def make_settings():
+        """Window layout and position, and the table-frame switch (kept across runs)."""
+        try:
+            return RankSettings(data_directory() / 'ui.json')
+        except OSError:
+            return RankSettings(runtime_directory() / 'ui.json')
+
     def refresh_rank_button(self):
         if not self.rank.available:
-            self.rank_button.set('排名 —', 'off', enabled=False)
+            self.panel.set_look('rank', '排名 —', 'off', enabled=False)
             return
         on = self.rank.enabled
-        self.rank_button.set('排名 开' if on else '排名 关', 'on' if on else 'off', enabled=True)
+        self.panel.set_look('rank', '排名 开' if on else '排名 关', 'on' if on else 'off', enabled=True)
+
+    def refresh_buttons(self):
+        self.refresh_rank_button()
+        self.panel.set_look('guide', '辅助线 开' if self.guide_enabled else '辅助线 关',
+                            'on' if self.guide_enabled else 'off')
+        self.panel.set_look('felt', '台面 开' if self.felt_enabled else '台面 关')
+        self.panel.set_look('hide', '显示' if self.hidden else '隐藏')
+
+    # -- window placement and layout ---------------------------------------
+    def place_window(self, layout):
+        """Restore the saved position of this layout, or dock it at a default spot."""
+        root = self.root
+        root.update_idletasks()
+        width = root.winfo_reqwidth()
+        monitor = win32api.MonitorFromPoint((0, 0), win32con.MONITOR_DEFAULTTOPRIMARY)
+        left, top, right, _ = win32api.GetMonitorInfo(monitor)['Work']
+        x, y = self.settings.get(f'{layout}_x'), self.settings.get(f'{layout}_y')
+        vx, vy, vw, vh = (win32api.GetSystemMetrics(index) for index in (76, 77, 78, 79))
+        if not (isinstance(x, int) and isinstance(y, int)
+                and vx - 20 <= x <= vx + vw - 80 and vy <= y <= vy + vh - 40):
+            if layout == 'bar':
+                x, y = left + max(0, (right - left - width) // 2), top + 2
+            elif layout == 'side':
+                x, y = right - width - 6, top + 8
+            else:
+                x, y = max(left, right - width - 18), top + 8
+        root.geometry(f'+{x}+{y}')
+
+    def remember_position(self):
+        if self.root.state() == 'normal':
+            self.settings.update(**{f'{self.panel.layout}_x': self.root.winfo_x(),
+                                    f'{self.panel.layout}_y': self.root.winfo_y()})
+
+    def apply_layout(self, name):
+        if name == self.panel.layout:
+            return
+        self.remember_position()
+        self.panel.set_layout(name)
+        self.refresh_buttons()
+        self.place_window(name)
+        self.settings.update(layout=name)
 
     def offer_rank(self):
         """Ask once, on the first run after the feature exists, whether to join the ranking."""
@@ -166,9 +219,9 @@ class DesktopBilliardsApp:
         dialog.bind('<Escape>', lambda event: dialog.destroy())
 
     def check_updates(self, manual=False):
-        if self.closing or not self.update_button.enabled:
+        if self.closing or not self.panel.is_enabled('update'):
             return
-        self.update_button.set('检查中…', enabled=False)
+        self.panel.set_look('update', '检查中…', enabled=False)
         self.update_feedback.set('')
 
         def fetch():
@@ -191,7 +244,7 @@ class DesktopBilliardsApp:
         except queue.Empty:
             self.root.after(100, self.finish_update_check, manual)
             return
-        self.update_button.set('检查更新', enabled=True)
+        self.panel.set_look('update', '检查更新', enabled=True)
         if info:
             self.show_update(info)
         elif manual:
@@ -224,6 +277,7 @@ class DesktopBilliardsApp:
             with dpi_context(-4):
                 overlay = BilliardsOverlay(desktop, items)
                 overlay.guide_enabled = self.guide_enabled
+                overlay.want_felt = self.felt_enabled
             self.watchdog = self.spawn_watchdog()
             self.runner = BilliardsRunner(overlay)
             self.runner.start()
@@ -248,12 +302,14 @@ class DesktopBilliardsApp:
         if self.closing:
             return
         try:
-            if self.hotkey:
+            if self.hotkey or self.hide_hotkey:
                 message = wintypes.MSG()
-                if ctypes.windll.user32.PeekMessageW(ctypes.byref(message), None, 0x312, 0x312, 1) \
-                        and message.wParam == config.HOTKEY_ID:
-                    self.close()
-                    return
+                while ctypes.windll.user32.PeekMessageW(ctypes.byref(message), None, 0x312, 0x312, 1):
+                    if message.wParam == config.HOTKEY_ID:
+                        self.close()
+                        return
+                    if message.wParam == config.HIDE_HOTKEY_ID:
+                        self.toggle_hide()
             if self.runner.error:
                 raise self.runner.error
             if not self.runner.shown.is_set():
@@ -300,8 +356,10 @@ class DesktopBilliardsApp:
                     if not finished:  # the finished summary already states the ball count
                         lines = [overlay.ball_info, *lines]
                     self.rank_text.set('\n'.join(lines))
+                    self.panel.rank_first.set(lines[0] if lines else '')
+                    self.update_result_dialog(overlay, table, finished)
                 except Exception:
-                    # Ranking must never interrupt a game or the desktop restore.
+                    # Ranking and dialogs must never interrupt a game or the desktop restore.
                     _write_log('rank.log', traceback.format_exc())
             self.root.after(50, self.poll)
         except Exception as exc:
@@ -313,10 +371,67 @@ class DesktopBilliardsApp:
 
     def toggle_guide(self):
         self.guide_enabled = not self.guide_enabled
-        self.guide_button.set('辅助线 开' if self.guide_enabled else '辅助线 关',
-                              'on' if self.guide_enabled else 'off')
+        self.refresh_buttons()
         if self.runner:
             self.runner.overlay.guide_enabled = self.guide_enabled
+
+    def toggle_felt(self):
+        """Show or hide the table frame, pockets and wallpaper panel."""
+        self.felt_enabled = not self.felt_enabled
+        self.settings.update(felt=self.felt_enabled)
+        self.refresh_buttons()
+        if self.runner:
+            self.runner.overlay.want_felt = self.felt_enabled
+
+    def toggle_hide(self):
+        """Boss key: hide the game and this window, show the real desktop, pause the round."""
+        if not (self.runner and self.runner.shown.is_set()) or self.runner.overlay.transition:
+            return
+        self.hidden = not self.hidden
+        self.runner.overlay.want_hidden = self.hidden
+        if self.hidden:
+            self.remember_position()
+            self.root.withdraw()
+        else:
+            self.root.deiconify()
+            self.root.lift()
+        self.refresh_buttons()
+
+    # -- round result ------------------------------------------------------
+    def update_result_dialog(self, overlay, table, finished):
+        """Open the result window once per cleared round and keep its numbers current."""
+        if finished and self.result_serial != table.round_serial and not self.hidden:
+            self.result_serial = table.round_serial
+            self.result_dialog = ResultDialog(self.root, {'again': self.play_again,
+                                                          'enable_rank': self.enable_rank_from_dialog})
+        dialog = self.result_dialog
+        if dialog is None:
+            return
+        if not dialog.alive():
+            self.result_dialog = None
+        elif not finished or table.round_serial != self.result_serial:
+            dialog.close()  # a new round has begun
+            self.result_dialog = None
+        else:
+            count = len(table.icons)
+            dialog.update({
+                'time': format_duration(table.play_ms),
+                'average': f'{average_seconds(table.play_ms, count):.2f}',
+                'balls': str(count),
+                'shots': str(table.shots),
+                'note': overlay.ball_info,
+                'rank': self.rank.view(table),
+            })
+
+    def play_again(self):
+        if self.result_dialog is not None:
+            self.result_dialog.close()
+            self.result_dialog = None
+        self.restart()
+
+    def enable_rank_from_dialog(self):
+        if self.rank.available and not self.rank.enabled:
+            self.toggle_rank()
 
     def fail(self, error):
         try:
@@ -349,8 +464,11 @@ class DesktopBilliardsApp:
             return
         self.closing = True
         self.rank.close()
+        self.remember_position()
         if self.hotkey:
             ctypes.windll.user32.UnregisterHotKey(None, config.HOTKEY_ID)
+        if self.hide_hotkey:
+            ctypes.windll.user32.UnregisterHotKey(None, config.HIDE_HOTKEY_ID)
         ctypes.windll.kernel32.CloseHandle(self.instance_handle)
         self.root.destroy()
 

@@ -22,7 +22,10 @@ class TableArtTests(unittest.TestCase):
         # The desktop area around the rails keeps a faint tint so the table reads.
         self.assertGreater(frame.getpixel((1, 1))[3], 0)
         for px, py in game.pockets:
-            self.assertGreater(frame.getpixel((px - origin_x, py - origin_y))[3], 200)
+            # Light pockets: clearly there, but translucent rather than solid black.
+            alpha = frame.getpixel((px - origin_x, py - origin_y))[3]
+            self.assertGreater(alpha, 90)
+            self.assertLess(alpha, 200)
 
     def test_frame_origin_is_the_work_area_origin(self):
         game = BilliardsMotion((100, 50, 1700, 1050), [(64, 64)] * 2)
@@ -82,6 +85,17 @@ class ParticleArtTests(unittest.TestCase):
         self.assertEqual(base.getchannel('A').getextrema()[1], 0)
         invisible = pocket_particles(base, 0, 0.)
         self.assertEqual(invisible.getchannel('A').getextrema()[1], 0)
+        done = pocket_particles(base, 0, 1.)
+        self.assertEqual(done.getchannel('A').getextrema()[1], 0)
+
+    def test_ripple_grows_while_the_icon_sinks(self):
+        base = Image.new('RGBA', (128, 128))
+
+        def ripple_radius(fade):
+            frame = pocket_particles(base, 0, fade)
+            return max(x for x in range(64, 128) if frame.getpixel((x, 64))[3] > 40) - 64
+
+        self.assertGreater(ripple_radius(.7), ripple_radius(.3))
 
 
 class CueArtTests(unittest.TestCase):
@@ -104,6 +118,16 @@ class CueArtTests(unittest.TestCase):
         thin_alpha = ImageStat.Stat(thin.getchannel('A')).sum[0]
         thick_alpha = ImageStat.Stat(thick.getchannel('A')).sum[0]
         self.assertGreater(thick_alpha, thin_alpha)
+
+
+class FormatDurationTests(unittest.TestCase):
+    def test_formats_whole_milliseconds(self):
+        from dib.panel import format_duration
+        self.assertEqual(format_duration(0), '00:00.00')
+        self.assertEqual(format_duration(372_340), '06:12.34')
+        self.assertEqual(format_duration(59_999), '00:59.99')
+        self.assertEqual(format_duration(3_600_000), '1:00:00.00')
+        self.assertEqual(format_duration(-5), '00:00.00')
 
 
 class GuideArtTests(unittest.TestCase):

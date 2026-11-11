@@ -21,24 +21,33 @@ class BilliardsMotionTests(unittest.TestCase):
         self.assertTrue(callable(game.reset))
         self.assertTrue(callable(game.step))
 
-    def test_pocket_exit_stays_on_screen_and_fades(self):
+    def test_sinking_icon_slides_into_the_pocket_shrinking_and_fading(self):
         work = (-1920, -120, 0, 960)
         game = BilliardsMotion(work, [(64, 64)] * 2)
-        top = game.bounds[1]
         game.state = 'rolling'
-        game.icons[0].x, game.icons[0].y = game.pockets[0]
+        px, py = game.pockets[0]
+        game.icons[0].x, game.icons[0].y = px + 30, py + 20
         game.step(.01, 0)
         self.assertIn(1, game.sunk)
         self.assertNotIn(game.icons[0], game.active_bodies())
-        self.assertEqual(game.exit_visual(1)[2], 0)
-        for frame in range(8):
+        x, y, fade, scale, spin = game.exit_visual(1)
+        self.assertEqual((fade, scale, spin), (0, 1, 0))
+        previous = (math.dist((x, y), (px, py)), 1.)
+        for frame in range(1, 11):
             game.step(.05, frame * .05)
-        x, y, fade = game.exit_visual(1)
-        self.assertLess(y, top)
-        self.assertTrue(work[0] < x < work[2] and work[1] < y < work[3])
-        self.assertGreater(fade, 0)
+            visual = game.exit_visual(1)
+            if visual is None:
+                break
+            x, y, fade, scale, spin = visual
+            self.assertTrue(work[0] < x < work[2] and work[1] < y < work[3])
+            distance = math.dist((x, y), (px, py))
+            self.assertLessEqual(distance, previous[0] + 1e-9)   # only ever moves towards the pocket
+            self.assertLessEqual(scale, previous[1] + 1e-9)      # only ever shrinks
+            previous = (distance, scale)
+        self.assertLess(previous[0], 1.0)
+        self.assertLess(previous[1], .5)
         for frame in range(8):
-            game.step(.05, .4 + frame * .05)
+            game.step(.05, .6 + frame * .05)
         self.assertIsNone(game.exit_visual(1))
 
     def test_cue_length_charge_and_stroke_approach(self):
@@ -206,6 +215,36 @@ class BilliardsMotionTests(unittest.TestCase):
         game.reset()
         self.assertEqual((game.play_ms, game.shots), (0, 0))
         self.assertEqual(game.round_serial, serial + 1)
+
+    def test_hidden_time_does_not_count_towards_the_round(self):
+        game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
+        game.shoot(1, 10.0)
+        game.state = 'rolling'
+        game.step(.01, 12.0)
+        self.assertEqual(game.play_ms, 2000)
+        game.pause(12.0)
+        game.pause(30.0)                      # a second pause call does not move the pause point
+        game.resume(612.0)                    # ten minutes later
+        game.step(.01, 613.0)
+        self.assertEqual(game.play_ms, 3000)  # 2 s before + 1 s after the pause
+        game.resume(700.0)                    # resuming without a pause is a no-op
+        game.step(.01, 614.0)
+        self.assertEqual(game.play_ms, 4000)
+
+    def test_pausing_before_the_first_shot_or_after_the_clear_changes_nothing(self):
+        game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
+        game.pause(1.0)
+        game.resume(50.0)
+        self.assertEqual(game.play_ms, 0)
+        game.shoot(1, 60.0)
+        game.state = 'rolling'
+        for icon, pocket in zip(game.icons, game.pockets[1:]):
+            icon.x, icon.y = pocket
+        game.step(.01, 65.0)
+        self.assertEqual(game.state, 'finished')
+        game.pause(66.0)
+        game.resume(900.0)
+        self.assertEqual(game.play_ms, 5000)
 
     def test_only_accepted_shots_are_counted(self):
         game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)

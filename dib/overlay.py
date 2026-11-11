@@ -295,6 +295,11 @@ class BilliardsOverlay:
         self.blocked_by = None
         self.last_blocked = None
         self.luma_map = None
+        # Set from the UI thread, applied by the animation thread inside draw().
+        self.want_hidden = False
+        self.hidden = False
+        self.want_felt = True
+        self.felt_visible = True
         self.table = None
         self.windows = []
         self.surfaces = {}
@@ -518,6 +523,42 @@ class BilliardsOverlay:
     def request_restart(self):
         self.restart_requested.set()
 
+    def set_hidden(self, hidden, now):
+        """Hide every game window and show the real icons again (or the reverse), pausing the round."""
+        shown = win32con.SW_HIDE if hidden else win32con.SW_SHOWNOACTIVATE
+        if hidden:
+            for hwnd in [*self.windows, *self.table_windows.values()]:
+                win32gui.ShowWindow(hwnd, win32con.SW_HIDE)
+            win32gui.ShowWindow(self.listview, win32con.SW_SHOWNA)
+            self.table.pause(now)
+        else:
+            win32gui.ShowWindow(self.listview, win32con.SW_HIDE)
+            for hwnd in self.windows:
+                win32gui.ShowWindow(hwnd, shown)
+            rail = self.table_windows.get('rail')
+            if rail and self.want_felt:
+                win32gui.ShowWindow(rail, shown)
+            # Forget what each layer last showed so the next frames re-show cue, guide and white ball.
+            self.cue_key = self.guide_key = self.charge_key = self.white_position = None
+            self.drawn = [None] * len(self.items)
+            self.pointer = TablePointer()
+            self.stack_table_windows()
+            self.table.resume(now)
+        self.hidden = hidden
+        diag.log(f'game {"hidden" if hidden else "shown again"}')
+
+    def set_felt(self, visible):
+        """Show or hide the table frame, pockets and wallpaper panel; the balls keep rolling on the desktop."""
+        rail = self.table_windows.get('rail')
+        if rail is None:
+            return
+        if visible:
+            win32gui.ShowWindow(rail, win32con.SW_SHOWNOACTIVATE)
+            self.position_layer(rail, win32con.HWND_BOTTOM)
+        else:
+            win32gui.ShowWindow(rail, win32con.SW_HIDE)
+        self.felt_visible = visible
+
     def draw(self, now, dt):
         if self.desktop.get_geometry() != self.geometry:
             raise RuntimeError('显示器布局变化，已停止台球并恢复桌面')
@@ -525,6 +566,12 @@ class BilliardsOverlay:
             self.monitor_checked = now
             if monitors() != self.monitor_state:
                 raise RuntimeError('屏幕布局或 DPI 缩放变化，已恢复桌面，请重新开始。')
+        if self.transition is None and self.want_hidden != self.hidden:
+            self.set_hidden(self.want_hidden, now)
+        if self.hidden:
+            return  # the real desktop is showing: draw and simulate nothing
+        if self.transition is None and self.want_felt != self.felt_visible:
+            self.set_felt(self.want_felt)
         if self.transition is not None:
             self.draw_intro(now, dt)
         else:
@@ -554,12 +601,12 @@ class BilliardsOverlay:
                 on_desktop = name in ('Progman', 'WorkerW')
                 if not on_desktop and win32process.GetWindowThreadProcessId(top_window)[1] != os.getpid():
                     title = win32gui.GetWindowText(top_window)[:30]
-                    blocked = f'{name}「{title}」' if title else name
-        self.blocked_by = blocked
+                    blocked = (title or name, name)  # the player sees the title, the log keeps the class
+        self.blocked_by = blocked[0] if blocked else None
         if blocked != self.last_blocked:
             self.last_blocked = blocked
             if blocked:
-                diag.log(f'mouse over the table is blocked by another window: {blocked}')
+                diag.log(f'mouse over the table is blocked by another window: {blocked[0]} (class {blocked[1]})')
         # GetAsyncKeyState reports the physical buttons; with swapped buttons the player's
         # primary (logical left) button is the physical right one.
         button = win32con.VK_RBUTTON if win32api.GetSystemMetrics(SM_SWAPBUTTON) else win32con.VK_LBUTTON
@@ -614,9 +661,10 @@ class BilliardsOverlay:
             effect = self.table.exit_visual(index + 1) if not alpha else None
             fade = 0.0
             if effect:
-                cx, cy, fade = effect
-                width = max(1, round(width * (1 - fade * 0.54)))
-                height = max(1, round(height * (1 - fade * 0.54)))
+                cx, cy, fade, scale, spin = effect
+                width = max(1, round(width * scale))
+                height = max(1, round(height * scale))
+                angle = round(angle + spin)
                 alpha = round(255 * (1 - fade) ** 1.35)
                 self.poses[index] = (cx, cy, width, height, angle, 0, 0.0)
             # A faint ring flashes at the collision radius while a ball is being hit.
