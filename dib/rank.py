@@ -317,7 +317,7 @@ class RankController:
                     'rank_text': f'第 {this["rank"]:,} 名',
                     'percentile_text': f'超过 {this["percentile"]}% 的玩家',
                     'best_text': ('新的个人最佳 · ' if payload.get('is_personal_best') else '')
-                                 + f'个人最佳第 {best["rank"]:,} 名 · 共 {payload["total_players"]:,} 人',
+                                 + f'个人最佳第 {best["rank"]:,} 名',
                     'new_best': bool(payload.get('is_personal_best')),
                 }
             except (KeyError, TypeError, ValueError):
@@ -399,7 +399,7 @@ class RankController:
             this, best = data['round'], data['best']
             first = f'本局全球第 {this["rank"]:,} 名 · 超过 {this["percentile"]}% 的玩家'
             prefix = '新的个人最佳 · ' if data.get('is_personal_best') else ''
-            second = f'{prefix}个人最佳第 {best["rank"]:,} 名 · 共 {data["total_players"]:,} 人'
+            second = f'{prefix}个人最佳第 {best["rank"]:,} 名'
         except (KeyError, TypeError, ValueError):
             return [ERROR_TEXT['bad_response']]
         return [first, second]

@@ -154,6 +154,15 @@ if (-not (Test-Path -LiteralPath $exePath)) {
     throw "打包完成但未找到预期产物: $exePath"
 }
 
+# A workspace may inherit a Low integrity label. An EXE carrying that label
+# starts at Low integrity and cannot unpack into the user's normal temp folder.
+# Normalize only the release file; leave workspace and system ACLs untouched.
+Write-Step '设置发布 EXE 为普通用户完整性级别 (Medium)'
+& icacls.exe $exePath /setintegritylevel M
+if ($LASTEXITCODE -ne 0) {
+    throw '无法设置发布 EXE 的 Medium 完整性标签。请在普通用户 PowerShell 中运行构建脚本。'
+}
+
 $exe = Get-Item -LiteralPath $exePath
 $hash = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash
 $sizeText = '{0:N1} MB' -f ($exe.Length / 1MB)

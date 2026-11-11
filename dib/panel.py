@@ -3,8 +3,7 @@
 Only widgets live here. The game logic stays in :mod:`dib.ui`, which fills the string
 variables and supplies the callbacks, so every window can also be previewed on its own.
 
-The main panel has three layouts: ``card`` (the full panel), ``bar`` (one slim row to park
-along a screen edge) and ``side`` (a slim column), so it can sit outside the table.
+The main panel is a single borderless toolbar with all actions visible.
 """
 from __future__ import annotations
 
@@ -19,9 +18,7 @@ ACCENT = '#69ddb3'
 WARN = '#f2b880'
 GOLD = '#f2ca87'
 FONT = 'Microsoft YaHei UI'
-CONTENT_WIDTH = 300
 NUMBERS = 'Segoe UI Semibold'
-LAYOUTS = (('card', '卡片'), ('bar', '横条'), ('side', '竖条'))
 
 # kind -> (background, hover, foreground)
 KINDS = {
@@ -100,47 +97,77 @@ def configure_styles(root):
 
 
 class MainPanel:
-    """Build the main window in one of three layouts and expose what the game updates.
-
-    String variables live as long as the panel; the widgets are rebuilt when the layout changes,
-    so button looks are kept in ``look`` and re-applied by :meth:`set_layout`.
-    """
+    """A draggable, borderless row of round statistics and explicit actions."""
 
     DEFAULT_LOOK = {
         'guide': {'text': '辅助线 开', 'kind': 'on'},
         'rank': {'text': '排名', 'kind': 'off'},
-        'hide': {'text': '隐藏', 'kind': 'soft'},
+        # 'hide': {'text': '隐藏', 'kind': 'soft'},
         'felt': {'text': '台面 开', 'kind': 'ghost'},
         'update': {'text': '检查更新', 'kind': 'ghost'},
     }
 
-    def __init__(self, root, version, callbacks, layout='card', credit=''):
+    def __init__(self, root, version, callbacks, credit=''):
         configure_styles(root)
         root.configure(bg=BG)
+        root.overrideredirect(True)
         self.root = root
-        self.version = version
-        self.credit = credit
-        self.callbacks = callbacks
-        self.shell = None
-        self.layout = None
         self.pills = {}
         self.look = {key: dict(value) for key, value in self.DEFAULT_LOOK.items()}
-        self.tone = 'ok'
-        self.status = tk.StringVar(root, value='正在摆球…')
         self.time_title = tk.StringVar(root, value='本局用时')
         self.time_value = tk.StringVar(root, value='00:00')
         self.count_title = tk.StringVar(root, value='图标入袋')
         self.count_value = tk.StringVar(root, value='—')
-        self.remaining_title = tk.StringVar(root, value='剩余图标')
+        self.remaining_title = tk.StringVar(root, value='剩余')
         self.remaining_value = tk.StringVar(root, value='—')
-        self.rank_text = tk.StringVar(root)
-        self.rank_first = tk.StringVar(root)
-        self.update_feedback = tk.StringVar(root)
-        self.set_layout(layout)
+        self.shell = tk.Frame(root, bg=BG, padx=6, pady=5)
+        self.shell.pack(fill='both', expand=True)
+        grip = tk.Label(self.shell, text='⋮⋮', font=(FONT, 11), fg=MUTED, bg=BG, padx=6, cursor='fleur')
+        grip.pack(side='left')
+        self._draggable(grip)
+        self._draggable(self.shell)
+        for title, value in ((self.time_title, self.time_value), (self.count_title, self.count_value),
+                             (self.remaining_title, self.remaining_value)):
+            box = tk.Frame(self.shell, bg=BG, padx=7)
+            box.pack(side='left')
+            self._draggable(box)
+            for variable, color, font in ((title, MUTED, (FONT, 8)), (value, TEXT, (NUMBERS, 11))):
+                label = tk.Label(box, textvariable=variable, font=font, fg=color, bg=BG)
+                label.pack(side='left', padx=(0, 4))
+                self._draggable(label)
+        for key, text, command, kind, bold in (
+                ('restart', '重新开始', callbacks['restart'], 'primary', True),
+                ('guide', '辅助线', callbacks['toggle_guide'], 'on', False),
+                ('rank', '排名', callbacks['toggle_rank'], 'off', False),
+                # ('hide', '隐藏', None, 'soft', False),
+                ('felt', '台面', callbacks['toggle_felt'], 'ghost', False),
+                ('update', '检查更新', callbacks['check_updates'], 'ghost', False),
+                ('donate', '打赏', callbacks['donate'], 'gold', False),
+                ('quit', '退出', callbacks['quit'], 'soft', False)):
+            look = self.look.get(key, {})
+            pill = Pill(self.shell, look.get('text', text), command, look.get('kind', kind),
+                        bold=bold, padx=8, pady=4)
+            pill.set(enabled=look.get('enabled', True))
+            pill.pack(side='left', padx=(4, 0))
+            self.pills[key] = pill
+        if credit:
+            link = tk.Label(self.shell, text=credit, font=(FONT, 8), fg=MUTED, bg=BG, padx=8, cursor='hand2')
+            link.pack(side='left')
+            link.bind('<ButtonRelease-1>', lambda event: callbacks['open_credit']())
+        root.update_idletasks()
 
-    # -- look of the buttons ---------------------------------------------------
+    def _draggable(self, widget):
+        widget.bind('<ButtonPress-1>', self._drag_start)
+        widget.bind('<B1-Motion>', self._drag_move)
+
+    def _drag_start(self, event):
+        self.drag_offset = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
+
+    def _drag_move(self, event):
+        x, y = self.drag_offset
+        self.root.geometry(f'+{event.x_root - x}+{event.y_root - y}')
+
     def set_look(self, key, text=None, kind=None, enabled=None):
-        """Remember and apply a button's text, kind and availability (it survives a layout change)."""
         look = self.look.setdefault(key, {})
         for name, value in (('text', text), ('kind', kind), ('enabled', enabled)):
             if value is not None:
@@ -151,205 +178,6 @@ class MainPanel:
 
     def is_enabled(self, key):
         return self.look.get(key, {}).get('enabled', True)
-
-    def _pill(self, parent, key, text, command, kind='soft', **options):
-        look = self.look.get(key, {})
-        pill = Pill(parent, look.get('text', text), command, look.get('kind', kind), **options)
-        if 'enabled' in look:
-            pill.set(enabled=look['enabled'])
-        self.pills[key] = pill
-        return pill
-
-    def set_tone(self, tone):
-        """Colour the status dot: ``ok`` normally, ``warn`` when something needs the player's attention."""
-        self.tone = tone
-        self._paint_tone()
-
-    def _paint_tone(self):
-        if self.dot is not None and self.dot.winfo_exists():
-            self.dot.itemconfigure(self.dot_shape, fill=WARN if self.tone == 'warn' else ACCENT)
-            self.status_label.configure(fg=WARN if self.tone == 'warn' else TEXT)
-
-    # -- layouts ---------------------------------------------------------------
-    def set_layout(self, layout):
-        if layout not in dict(LAYOUTS):
-            layout = 'card'
-        if self.shell is not None:
-            self.shell.destroy()
-        self.pills = {}
-        self.dot = None
-        self.shell = tk.Frame(self.root, bg=BG)
-        self.shell.pack(fill='both', expand=True)
-        # Compact layouts use the slim tool-window caption, which also keeps them off the taskbar.
-        try:
-            self.root.attributes('-toolwindow', layout != 'card')
-        except tk.TclError:
-            pass
-        {'card': self._build_card, 'bar': self._build_bar, 'side': self._build_side}[layout]()
-        self.layout = layout
-        self._paint_tone()
-        self.root.update_idletasks()
-
-    def _credit(self, parent, prefix=''):
-        """``prefix`` plus the author's handle; clicking the handle opens the author's page."""
-        box = tk.Frame(parent, bg=parent.cget('bg'))
-        tk.Label(box, text=prefix, font=(FONT, 8), fg=MUTED, bg=parent.cget('bg')).pack(side='left')
-        link = tk.Label(box, text=self.credit, font=(FONT, 8), fg=ACCENT, bg=parent.cget('bg'), cursor='hand2')
-        link.pack(side='left')
-        link.bind('<ButtonRelease-1>', lambda event: self.callbacks['open_credit']())
-        return box
-
-    def _status_row(self, parent, wraplength, font_size=9):
-        row = tk.Frame(parent, bg=BG)
-        self.dot = tk.Canvas(row, width=10, height=10, bg=BG, highlightthickness=0)
-        self.dot_shape = self.dot.create_oval(1, 1, 9, 9, fill=ACCENT, outline='')
-        self.dot.pack(side='left', padx=(1, 8))
-        self.status_label = tk.Label(row, textvariable=self.status, font=(FONT, font_size), fg=TEXT, bg=BG,
-                                     anchor='w', justify='left', wraplength=wraplength)
-        self.status_label.pack(side='left', fill='x', expand=True)
-        return row
-
-    def _stat(self, parent, title, value, *, size, background):
-        box = tk.Frame(parent, bg=background)
-        tk.Label(box, textvariable=title, font=(FONT, 8), fg=MUTED, bg=background, anchor='w').pack(anchor='w')
-        tk.Label(box, textvariable=value, font=(NUMBERS, size), fg=TEXT, bg=background, anchor='w').pack(anchor='w')
-        return box
-
-    def _build_card(self):
-        callbacks = self.callbacks
-        shell = tk.Frame(self.shell, bg=BG, padx=16, pady=14)
-        shell.pack(fill='both', expand=True)
-        # A fixed content width: texts wrap inside it instead of stretching the window.
-        tk.Frame(shell, width=CONTENT_WIDTH, height=0, bg=BG).pack()
-        head = tk.Frame(shell, bg=BG)
-        head.pack(fill='x')
-        tk.Label(head, text='桌面图标台球', font=(FONT, 12, 'bold'), fg=TEXT, bg=BG).pack(side='left')
-        self._credit(head, f'v{self.version}  ').pack(side='right', pady=(4, 0))
-        self._status_row(shell, CONTENT_WIDTH - 20).pack(fill='x', pady=(8, 10))
-
-        stats = tk.Frame(shell, bg=CARD, padx=14, pady=10)
-        stats.pack(fill='x')
-        for column, (title, value) in enumerate(((self.time_title, self.time_value),
-                                                 (self.count_title, self.count_value),
-                                                 (self.remaining_title, self.remaining_value))):
-            stats.columnconfigure(column, weight=1, uniform='stats')
-            self._stat(stats, title, value, size=19, background=CARD).grid(row=0, column=column, sticky='w')
-
-        info = tk.Frame(shell, bg=CARD, padx=14, pady=9)
-        info.pack(fill='x', pady=(8, 0))
-        tk.Label(info, textvariable=self.rank_text, font=(FONT, 9), fg=MUTED, bg=CARD, height=3, anchor='nw',
-                 justify='left', wraplength=CONTENT_WIDTH - 28).pack(fill='x')
-
-        actions = tk.Frame(shell, bg=BG)
-        actions.pack(fill='x', pady=(12, 0))
-        for column, weight in enumerate((3, 2, 2, 2)):
-            actions.columnconfigure(column, weight=weight, uniform='actions')
-        for column, (key, text, command, kind, bold) in enumerate((
-                ('restart', '重新开始', callbacks['restart'], 'primary', True),
-                ('guide', '辅助线', callbacks['toggle_guide'], 'on', False),
-                ('rank', '排名', callbacks['toggle_rank'], 'off', False),
-                ('hide', '隐藏', callbacks['toggle_hide'], 'soft', False))):
-            self._pill(actions, key, text, command, kind, bold=bold, padx=6).grid(
-                row=0, column=column, sticky='ew', padx=(0 if column == 0 else 6, 0))
-
-        foot = tk.Frame(shell, bg=BG)
-        foot.pack(fill='x', pady=(10, 0))
-        small = {'padx': 6, 'pady': 3}
-        self._pill(foot, 'update', '检查更新', callbacks['check_updates'], 'ghost', **small).pack(side='left')
-        self._pill(foot, 'donate', '打赏', callbacks['donate'], 'gold', **small).pack(side='left')
-        self._pill(foot, 'felt', '台面', callbacks['toggle_felt'], 'ghost', **small).pack(side='left')
-        layout_pill = self._pill(foot, 'layout', '布局', lambda: None, 'ghost', **small)
-        layout_pill.command = lambda: self._popup(self._layout_menu(), layout_pill)
-        layout_pill.pack(side='left')
-        self._pill(foot, 'quit', '退出', callbacks['quit'], 'ghost', **small).pack(side='right')
-        tk.Label(shell, textvariable=self.update_feedback, font=(FONT, 8), fg=MUTED, bg=BG,
-                 anchor='w').pack(fill='x', pady=(2, 0))
-        tk.Label(shell, text='Esc / Ctrl+Alt+X 退出并恢复桌面 · Ctrl+Alt+H 隐藏', font=(FONT, 8), fg='#58716a',
-                 bg=BG, anchor='w').pack(fill='x', pady=(2, 0))
-
-    def _build_bar(self):
-        callbacks = self.callbacks
-        shell = tk.Frame(self.shell, bg=BG, padx=12, pady=8)
-        shell.pack(fill='both', expand=True)
-        left = tk.Frame(shell, bg=BG)
-        left.pack(side='left')
-        tk.Frame(left, width=250, height=0, bg=BG).pack()
-        self._status_row(left, 230).pack(anchor='w')
-        tk.Label(left, textvariable=self.rank_first, font=(FONT, 8), fg=MUTED, bg=BG, anchor='w',
-                 wraplength=250).pack(anchor='w', padx=(19, 0))
-        right = tk.Frame(shell, bg=BG)
-        right.pack(side='right')
-        buttons = tk.Frame(right, bg=BG)
-        buttons.pack()
-        self._credit(right).pack(anchor='e', pady=(4, 0))
-        more = Pill(buttons, '⋯', lambda: None, 'soft', padx=9, pady=5)
-        more.command = lambda: self._popup(self._more_menu(), more)
-        for key, text, command, kind, bold in (
-                ('restart', '重新开始', callbacks['restart'], 'primary', True),
-                ('guide', '辅助线', callbacks['toggle_guide'], 'on', False),
-                ('rank', '排名', callbacks['toggle_rank'], 'off', False),
-                ('hide', '隐藏', callbacks['toggle_hide'], 'soft', False)):
-            self._pill(buttons, key, text, command, kind, bold=bold, padx=10, pady=5).pack(side='left', padx=(6, 0))
-        more.pack(side='left', padx=(6, 0))
-        for title, value in ((self.time_title, self.time_value), (self.count_title, self.count_value),
-                             (self.remaining_title, self.remaining_value)):
-            self._stat(shell, title, value, size=14, background=BG).pack(side='left', padx=(18, 0))
-
-    def _build_side(self):
-        callbacks = self.callbacks
-        shell = tk.Frame(self.shell, bg=BG, padx=12, pady=10)
-        shell.pack(fill='both', expand=True)
-        tk.Frame(shell, width=148, height=0, bg=BG).pack()
-        self._status_row(shell, 128).pack(fill='x', pady=(0, 8))
-        stats = tk.Frame(shell, bg=CARD, padx=12, pady=8)
-        stats.pack(fill='x')
-        for index, (title, value) in enumerate(((self.time_title, self.time_value),
-                                                (self.count_title, self.count_value),
-                                                (self.remaining_title, self.remaining_value))):
-            self._stat(stats, title, value, size=16, background=CARD).pack(anchor='w', pady=(0 if index == 0 else 6, 0))
-        tk.Label(shell, textvariable=self.rank_first, font=(FONT, 8), fg=MUTED, bg=BG, anchor='nw', justify='left',
-                 wraplength=148).pack(fill='x', pady=(8, 8))
-        for key, text, command, kind, bold in (
-                ('restart', '重新开始', callbacks['restart'], 'primary', True),
-                ('guide', '辅助线', callbacks['toggle_guide'], 'on', False),
-                ('rank', '排名', callbacks['toggle_rank'], 'off', False),
-                ('hide', '隐藏', callbacks['toggle_hide'], 'soft', False)):
-            self._pill(shell, key, text, command, kind, bold=bold, pady=5).pack(fill='x', pady=(0, 5))
-        more = Pill(shell, '⋯  更多', lambda: None, 'ghost', pady=4)
-        more.command = lambda: self._popup(self._more_menu(), more)
-        more.pack(fill='x')
-        self._credit(shell).pack(anchor='w', pady=(6, 0))
-
-    # -- menus -----------------------------------------------------------------
-    def _new_menu(self):
-        return tk.Menu(self.root, tearoff=0, bg=CARD, fg=TEXT, activebackground='#294843', activeforeground=TEXT,
-                       bd=0, relief='flat', font=(FONT, 9))
-
-    def _layout_menu(self, parent=None):
-        menu = self._new_menu() if parent is None else tk.Menu(parent, tearoff=0, bg=CARD, fg=TEXT,
-                                                               activebackground='#294843', activeforeground=TEXT,
-                                                               bd=0, relief='flat', font=(FONT, 9))
-        for name, label in LAYOUTS:
-            menu.add_command(label=('● ' if name == self.layout else '    ') + label,
-                             command=lambda name=name: self.callbacks['set_layout'](name))
-        return menu
-
-    def _more_menu(self):
-        menu = self._new_menu()
-        menu.add_command(label=self.look['felt']['text'].replace('台面', '台面框'), command=self.callbacks['toggle_felt'])
-        menu.add_command(label='检查更新', command=self.callbacks['check_updates'])
-        menu.add_command(label='打赏', command=self.callbacks['donate'])
-        menu.add_cascade(label='布局', menu=self._layout_menu(menu))
-        menu.add_separator()
-        menu.add_command(label='退出', command=self.callbacks['quit'])
-        return menu
-
-    @staticmethod
-    def _popup(menu, anchor):
-        try:
-            menu.tk_popup(anchor.winfo_rootx(), anchor.winfo_rooty() + anchor.winfo_height())
-        finally:
-            menu.grab_release()
 
 
 class ResultDialog:

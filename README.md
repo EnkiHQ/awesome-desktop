@@ -8,7 +8,7 @@ Windows 10 / 11 x64 · 单文件 EXE · MIT
 
 ## 下载
 
-Windows 版 v0.1.3 为单文件 EXE。[GitHub 下载](https://github.com/liuxiaogang-com/desktop-icon-billiards/releases/download/v0.1.3/DesktopIconBilliards-0.1.3-win-x64.exe) · [CNB 国内镜像](https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.3/DesktopIconBilliards-0.1.3-win-x64.exe)
+Windows 版 v0.1.4 为单文件 EXE。[GitHub 下载](https://github.com/liuxiaogang-com/desktop-icon-billiards/releases/download/v0.1.4/DesktopIconBilliards-0.1.4-win-x64.exe) · [CNB 国内镜像](https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.4/DesktopIconBilliards-0.1.4-win-x64.exe)
 
 `desktop-icon-billiards` 的源码和发布附件在两个平台同步。[GitHub 仓库](https://github.com/liuxiaogang-com/desktop-icon-billiards) · [CNB 国内镜像仓库](https://cnb.cool/liuxiaogang/desktop-icon-billiards)
 
@@ -20,7 +20,7 @@ Windows 版 v0.1.3 为单文件 EXE。[GitHub 下载](https://github.com/liuxiao
 2. 用「**辅助线 · 开 / 关**」切换瞄准辅助。白线标记首次碰撞前的路线，蓝线表示白球碰球或碰库后的方向，绿线表示被撞图标的方向。路线会随力度变化，终点是预计的下一次碰撞、入袋或停球位置。辅助线带有描边，并会根据壁纸明暗自动换成深色或浅色，浅色壁纸上也看得清。路线上还会淡淡地画出碰撞圈：白球接触瞬间的位置，以及被撞图标的碰撞范围（比图标本身略大，这就是实际判定碰撞的圆）；图标被撞到时也会闪现一圈。
 3. 主窗口显示本局用时、进球数和剩余图标数。白球入袋时会尝试自动摆回，如果没有合适的位置，可以点击台面空处摆球。白球入袋不计入进球数。
 4. 清台后查看总用时和图标总数。点击「**重新开始**」重置本局，也可以在中途重开。
-5. 点击「退出」、按 `Esc` 或使用全局快捷键 `Ctrl+Alt+X`，恢复桌面。需要暂时离开时按 `Ctrl+Alt+H` 隐藏。
+5. 点击「退出」、按 `Esc` 或使用全局快捷键 `Ctrl+Alt+X`，恢复桌面。
 
 ### 计时与全球排名
 
@@ -32,11 +32,11 @@ Windows 版 v0.1.3 为单文件 EXE。[GitHub 下载](https://github.com/liuxiao
 
 ### 窗口与隐藏
 
-- 主窗口有三种布局，可在「布局」按钮（横条和竖条里在「⋯」菜单）中切换，并记住各自的位置：**卡片**是完整面板，**横条**是一条窄行，**竖条**是一列窄栏，方便拖到台面外面。
-- **隐藏（摸鱼键）**：点「隐藏」或按 `Ctrl+Alt+H`，游戏和主窗口都会隐藏，露出真实桌面，球局暂停，隐藏的时间不计入用时；再按一次 `Ctrl+Alt+H` 回到原来的局面。
+- 主窗口只保留**无标题栏、无状态栏的横条**：用时、进球和剩余数量与全部操作按钮排成一行，无折叠菜单。拖动左侧手柄或数据区域移动横条，位置会自动保存；点击「退出」恢复桌面。
+- **0.1.4 暂时停用隐藏功能**：不显示隐藏按钮，`Ctrl+Alt+H` 不注册。需要离开时请点击「退出」或按 `Ctrl+Alt+X` 恢复桌面。
 - **台面**开关可隐藏台面框、球袋和壁纸衬底，只剩图标在桌面上滚动。
 - 图标入袋时会滑进球袋、旋转缩小并淡出，同时泛起一圈涟漪。
-- 作者标记 `GitHub@liuxiaogang-com` 显示在主窗口版本号旁（横条和竖条里在窗口角落，点击可打开作者主页）、结算窗口右上角，以及台面下方的边缘处（很淡，不影响击球）。转发截图或录屏时请保留来源。
+- 作者标记 `GitHub@liuxiaogang-com` 显示在横条右侧（点击可打开作者主页）、结算窗口右上角，以及台面下方的边缘处（很淡，不影响击球）。转发截图或录屏时请保留来源。
 - 遇到无法击球、多显示器错位等问题，请把 `%TEMP%\DesktopIconBilliards` 下的 `diag.log` 和 `error.log` 一并反馈。
 
 ![清台结算窗口：总用时 06:12，图标总数 35](docs/images/round-summary.jpg)
@@ -62,6 +62,8 @@ pwsh -File build.ps1
 ```
 
 产物位于 `dist/DesktopIconBilliards-<version>-win-x64.exe`，可以直接运行。脚本会输出大小和 SHA-256，版本号取自 `dib/__init__.py`。已安装构建依赖时，可加 `-SkipDeps`。
+
+脚本会将发布 EXE 的 Windows 完整性标签设为普通用户的 Medium，避免继承工作目录的 Low 标签后无法创建解压临时目录（`Could not create temporary directory!`）。这一步只修改产物标签，不修改项目目录或系统临时目录的权限。
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v

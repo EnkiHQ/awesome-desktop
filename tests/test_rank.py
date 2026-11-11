@@ -278,7 +278,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(finish, [('finish', ROUND, 40012, MIN_BALLS, 1)])
         self.assertEqual(self.rank.lines(self.game),
                          ['本局平均 2.67 秒/颗（15 颗）', '本局全球第 1,204 名 · 超过 87% 的玩家',
-                          '新的个人最佳 · 个人最佳第 860 名 · 共 10,532 人'])
+                          '新的个人最佳 · 个人最佳第 860 名'])
         # The result is submitted once, however often the UI polls.
         for _ in range(5):
             self.rank.observe(self.game)
@@ -394,7 +394,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(view['phase'], 'ok')
         self.assertEqual(view['rank_text'], '第 1,204 名')
         self.assertEqual(view['percentile_text'], '超过 87% 的玩家')
-        self.assertEqual(view['best_text'], '新的个人最佳 · 个人最佳第 860 名 · 共 10,532 人')
+        self.assertEqual(view['best_text'], '新的个人最佳 · 个人最佳第 860 名')
         self.assertTrue(view['new_best'])
 
     def test_view_reports_errors_skips_and_the_unrankable(self):
