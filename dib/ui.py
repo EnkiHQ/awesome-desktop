@@ -57,6 +57,20 @@ def _write_log(name, text):
         pass
 
 
+def describe_error(error):
+    """The error text plus where it was raised (``file.py:line in function``).
+
+    A bare message such as "'NoneType' object is not iterable" says nothing on its own; the
+    location lets a player's screenshot pin the bug down. The last frame inside this package wins.
+    """
+    frames = traceback.extract_tb(error.__traceback__)
+    frame = next((f for f in reversed(frames) if 'dib' in f.filename.replace('\\', '/').split('/')), None)
+    frame = frame or (frames[-1] if frames else None)
+    where = f'{os.path.basename(frame.filename)}:{frame.lineno} in {frame.name}' if frame else ''
+    text = f'{error}\n\n出错位置：{where}' if where else str(error)
+    return f'{text}\n\n详细信息见 %TEMP%\\DesktopIconBilliards\\error.log'
+
+
 class DesktopBilliardsApp:
     """Own the Tk window, the layout journal and the animation runner."""
 
@@ -443,10 +457,10 @@ class DesktopBilliardsApp:
             self.restore()
         except Exception as exc:
             self.status.set('请再次点击退出')
-            messagebox.showerror(config.PRODUCT_NAME, f'{error}\n\n{exc}', parent=self.root)
+            messagebox.showerror(config.PRODUCT_NAME, f'{describe_error(error)}\n\n{exc}', parent=self.root)
             return
         _write_log('error.log', traceback.format_exc())
-        messagebox.showerror(config.PRODUCT_NAME, str(error), parent=self.root)
+        messagebox.showerror(config.PRODUCT_NAME, describe_error(error), parent=self.root)
         self.close()
 
     def restore(self):
@@ -508,7 +522,7 @@ def main():
                 pass
         else:
             try:
-                messagebox.showerror(config.PRODUCT_NAME, f'启动失败：{error}\n\n详情已尽量写入日志。')
+                messagebox.showerror(config.PRODUCT_NAME, f'启动失败：{describe_error(error)}')
             except Exception:
                 pass
         raise
