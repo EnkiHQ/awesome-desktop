@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 from pathlib import Path
 
 # Deliberately distinct from the sibling DesktopBounce runtime directory.
@@ -26,8 +27,36 @@ def _temporary_directory() -> Path:
     return Path(buffer.value)
 
 
+def _candidate_bases():
+    """Where runtime files may live, best first: the temp directory, then the user's profile.
+
+    The temp directory can be missing, redirected to a read-only place or locked down by a
+    security policy; the profile folders are the fallback so the game still starts there.
+    """
+    try:
+        yield _temporary_directory()
+    except OSError:
+        pass
+    for variable in ('LOCALAPPDATA', 'APPDATA'):
+        base = os.environ.get(variable)
+        if base:
+            yield Path(base)
+
+
 def runtime_directory() -> Path:
-    """Return the per-user directory for journals and logs, creating it if needed."""
-    directory = _temporary_directory() / RUNTIME_DIRECTORY_NAME
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
+    """Return a writable per-user directory for journals and logs, creating it if needed.
+
+    Raises the last ``OSError`` only when no candidate location can be created and written to.
+    """
+    last_error = OSError('找不到可写入的运行目录（临时目录和用户目录都不可用）')
+    for base in _candidate_bases():
+        directory = base / RUNTIME_DIRECTORY_NAME
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            probe = directory / '.write-test'
+            probe.write_text('', encoding='utf-8')
+            probe.unlink()
+            return directory
+        except OSError as error:
+            last_error = error
+    raise last_error

@@ -499,7 +499,7 @@ def main():
         root.mainloop()
     except SystemExit:
         raise
-    except Exception:
+    except Exception as error:
         _write_log('error.log', traceback.format_exc())
         if app is not None:
             try:
@@ -508,7 +508,7 @@ def main():
                 pass
         else:
             try:
-                messagebox.showerror(config.PRODUCT_NAME, '启动失败，详情已写入日志。')
+                messagebox.showerror(config.PRODUCT_NAME, f'启动失败：{error}\n\n详情已尽量写入日志。')
             except Exception:
                 pass
         raise
