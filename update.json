@@ -1,8 +1,12 @@
 {
-  "version": "0.1.2",
-  "download_url": "https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.2/DesktopIconBilliards-0.1.2-win-x64.exe",
-  "notes": "修复多屏环境下球台错位和画面跨屏的问题。球台、图标动画和击球提示只在 Windows 主屏幕的工作区显示。",
+  "version": "0.1.3",
+  "download_url": "https://cnb.cool/liuxiaogang/desktop-icon-billiards/-/releases/download/v0.1.3/DesktopIconBilliards-0.1.3-win-x64.exe",
+  "notes": "修复多屏环境下球台错位和画面跨屏的问题。球台、图标动画和击球提示只在 Windows 主屏幕的工作区显示。\n修复部分 Windows 电脑因缺少 MFC 运行库而无法启动的问题。",
   "history": [
+    {
+      "version": "0.1.2",
+      "notes": "修复多屏环境下球台错位和画面跨屏的问题。球台、图标动画和击球提示只在 Windows 主屏幕的工作区显示。"
+    },
     {
       "version": "0.1.1",
       "notes": "新增「剩余图标」统计，进袋后即时更新。清台时显示 0，重新开局后恢复为本局图标总数。"
