@@ -78,7 +78,11 @@ $env:DIB_UPDATE_URL = 'https://staging.example.com/desktop-icon-billiards/update
 
    产物为 `dist/DesktopIconBilliards-<version>-win-x64.exe`，脚本会打印大小和 SHA-256。
    旧版本产物不会被删除，方便回滚。
-3. 把同一个 exe 上传为 GitHub 和 CNB Release 附件，确认两边都能通过 HTTPS 匿名下载，且 SHA-256 与本地产物一致。
+3. 先把 exe 上传为 GitHub Release 附件；CNB 附件通过发布分支流水线上传，不使用 CLI 直接创建 Release。
+   发布分支的 `.cnb.yml` 从 GitHub 下载同一份 exe，用 `SHA256SUMS.txt` 校验，再通过 `git:release`
+   创建版本、`cnbcool/attachments` 上传附件（`ttl: 0` 永久保存）。更新说明从 `RELEASE.md` 读取。
+   可参考 CNB 的 `codex/publish-desktop-icon-billiards-v0.1.4` 分支；后续发布需同步修改版本号和校验值。
+   流水线成功后，确认两边都能通过 HTTPS 匿名下载，且 SHA-256 与本地产物一致。
    文件名保持 `DesktopIconBilliards-<version>-win-x64.exe` 格式。
 4. 更新 JSON：把上一版顶层的 `version` 和 `notes` 移到 `history` 最前面，再写入新的
    `version`、`download_url`、`notes`。`download_url` 填本次 CNB 镜像的下载链接。
