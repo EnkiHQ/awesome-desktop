@@ -17,13 +17,13 @@ import tkinter as tk
 import win32api
 import win32con
 from PIL import Image, ImageTk
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import messagebox, ttk
 
 from . import config, diag
 from .display import dpi_context
 from .instance import acquire_instance, claim_instance_mutex, publish_version
 from .overlay import BilliardsOverlay
-from .panel import MainPanel
+from .panel import MainPanel, show_update_dialog
 from .paths import runtime_directory
 from .rank import RankApi, RankController, RankSettings, data_directory
 from .runner import BilliardsRunner
@@ -198,28 +198,13 @@ class DesktopBilliardsApp:
             self.update_feedback.set('已是最新版' if success else '检查失败，请稍后重试')
 
     def show_update(self, info):
-        dialog = tk.Toplevel(self.root)
-        dialog.title(f'发现新版本 {info["version"]}')
-        dialog.transient(self.root)
-        body = ttk.Frame(dialog, padding=14)
-        body.pack(fill='both', expand=True)
-        notes = scrolledtext.ScrolledText(body, width=46, height=12, wrap='word')
-        notes.pack(fill='both', expand=True)
-        notes.tag_configure('latest', font=('Microsoft YaHei UI', 10, 'bold'))
-        for index, entry in enumerate(release_entries(info)):
-            notes.insert('end', f'{entry["version"]}\n', 'latest' if index == 0 else ())
-            notes.insert('end', (entry['notes'] or '暂无更新说明') + '\n\n')
-        notes.configure(state='disabled')
-
-        def download():
+        def download(dialog):
             if webbrowser.open(info['download_url']):
                 dialog.destroy()
             else:
                 messagebox.showerror('打开下载失败', '请检查默认浏览器设置。', parent=dialog)
 
-        ttk.Button(body, text='去更新', command=download).pack(side='right', pady=(10, 0))
-        ttk.Button(body, text='稍后', command=dialog.destroy).pack(side='right', padx=6, pady=(10, 0))
-        dialog.geometry(f'+{self.root.winfo_x()}+{self.root.winfo_y()+self.root.winfo_height()+10}')
+        show_update_dialog(self.root, config.VERSION, info, release_entries(info), download)
 
     # -- game lifecycle ----------------------------------------------------
     def start(self):

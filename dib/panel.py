@@ -80,6 +80,9 @@ def configure_styles(root):
     style.configure('Table.TButton', padding=(11, 6), font=(FONT, 9), background=CARD, foreground=TEXT,
                     borderwidth=0, focusthickness=1, focuscolor=ACCENT)
     style.map('Table.TButton', background=[('active', '#1d3531'), ('pressed', '#24423c')])
+    style.configure('Dark.Vertical.TScrollbar', background='#2b4a44', troughcolor=CARD, bordercolor=CARD,
+                    lightcolor='#2b4a44', darkcolor='#2b4a44', arrowcolor=MUTED, relief='flat', gripcount=0)
+    style.map('Dark.Vertical.TScrollbar', background=[('active', '#3a645b'), ('pressed', '#3a645b')])
 
 
 class MainPanel:
@@ -159,3 +162,51 @@ class MainPanel:
         """Colour the status dot: ``ok`` normally, ``warn`` when something needs the player's attention."""
         self.dot.itemconfigure(self.dot_shape, fill=WARN if tone == 'warn' else ACCENT)
         self.status_label.configure(fg=WARN if tone == 'warn' else TEXT)
+
+
+def show_update_dialog(root, current, info, entries, on_download):
+    """A dark release-notes dialog. ``entries`` is the display list from ``release_entries``;
+    ``on_download(dialog)`` opens the download and closes the dialog when it succeeds."""
+    dialog = tk.Toplevel(root)
+    dialog.title(f'发现新版本 {info["version"]}')
+    dialog.configure(bg=BG)
+    dialog.transient(root)
+    dialog.resizable(False, False)
+    shell = tk.Frame(dialog, bg=BG, padx=18, pady=16)
+    shell.pack(fill='both', expand=True)
+
+    tk.Label(shell, text='发现新版本', font=(FONT, 12, 'bold'), fg=TEXT, bg=BG).pack(anchor='w')
+    versions = tk.Frame(shell, bg=BG)
+    versions.pack(fill='x', pady=(4, 10))
+    tk.Label(versions, text=f'v{current}', font=(FONT, 9), fg=MUTED, bg=BG).pack(side='left')
+    tk.Label(versions, text='  →  ', font=(FONT, 9), fg=MUTED, bg=BG).pack(side='left')
+    tk.Label(versions, text=f'v{info["version"]}', font=(NUMBERS, 11), fg=ACCENT, bg=BG).pack(side='left')
+
+    card = tk.Frame(shell, bg=CARD)
+    card.pack(fill='both', expand=True)
+    notes = tk.Text(card, width=46, height=12, wrap='word', bg=CARD, fg=TEXT, relief='flat', bd=0,
+                    highlightthickness=0, padx=14, pady=10, font=(FONT, 9), spacing3=3, cursor='arrow',
+                    insertwidth=0, selectbackground='#2b4a44')
+    scrollbar = ttk.Scrollbar(card, orient='vertical', command=notes.yview, style='Dark.Vertical.TScrollbar')
+    notes.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side='right', fill='y')
+    notes.pack(side='left', fill='both', expand=True)
+    notes.tag_configure('latest', font=(FONT, 10, 'bold'), foreground=ACCENT, spacing1=0)
+    notes.tag_configure('older', font=(FONT, 10, 'bold'), foreground=TEXT, spacing1=8)
+    notes.tag_configure('body', foreground='#c4d9d2')
+    for index, entry in enumerate(entries):
+        notes.insert('end', f'{entry["version"]}\n', 'latest' if index == 0 else 'older')
+        notes.insert('end', (entry['notes'] or '暂无更新说明') + '\n', 'body')
+    notes.configure(state='disabled')
+
+    buttons = tk.Frame(shell, bg=BG)
+    buttons.pack(fill='x', pady=(14, 0))
+    Pill(buttons, '去更新', lambda: on_download(dialog), 'primary', bold=True, padx=18).pack(side='right')
+    Pill(buttons, '稍后', dialog.destroy, 'soft', padx=16).pack(side='right', padx=(0, 8))
+    dialog.bind('<Escape>', lambda event: dialog.destroy())
+
+    # Align the dialog's right edge with the main window, just below it, and keep it on screen.
+    dialog.update_idletasks()
+    x = max(0, root.winfo_x() + root.winfo_width() - dialog.winfo_reqwidth())
+    dialog.geometry(f'+{x}+{root.winfo_y() + root.winfo_height() + 10}')
+    return dialog
