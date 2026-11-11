@@ -53,6 +53,8 @@ class BilliardsMotion:
                 x = left + self.width * .52 + column * pitch * .84
                 y = (top + bottom) / 2 + (i - (depth - 1) / 2) * pitch * .95
                 self.rack.append((x, y))
+        # Counts every (re)started round so observers can tell rounds apart.
+        self.round_serial = 0
         self.reset()
 
     def reset(self):
@@ -65,8 +67,12 @@ class BilliardsMotion:
         self.exits = {}
         self.state = 'ready'
         self.ready_for = 0.
-        self.round_started_at = None
-        self.round_seconds = 0
+        # The timed round runs from the first shot to the last icon sinking.
+        self.round_serial += 1
+        self.first_shot_at = None
+        self.finished_at = None
+        self.shots = 0
+        self.clock = 0.
         self.stroke = 0.
         self.power = 0.
         self.charge = 0.
@@ -80,6 +86,18 @@ class BilliardsMotion:
     @property
     def pocketed_icons(self):
         return len(self.sunk) - (0 in self.sunk)
+
+    @property
+    def play_ms(self):
+        """Whole milliseconds since the first shot; frozen once the table is cleared."""
+        if self.first_shot_at is None:
+            return 0
+        end = self.finished_at if self.finished_at is not None else self.clock
+        return max(0, round((end - self.first_shot_at) * 1000))
+
+    @property
+    def round_seconds(self):
+        return self.play_ms // 1000
 
     def _aim(self):
         x, y = self.white.x, self.white.y
@@ -140,13 +158,18 @@ class BilliardsMotion:
         if length > 2:
             self.aim = (dx / length, dy / length)
 
-    def shoot(self, power):
+    def shoot(self, power, now=None):
+        """Strike the white ball. ``now`` is the frame clock; the first shot starts the round timer."""
         if self.state != 'ready':
             return False
         self.state = 'stroke'
         self.stroke = 0.
         self.power = self._shot_speed(power)
         self.break_shot = False
+        self.shots += 1
+        if self.first_shot_at is None:
+            self.first_shot_at = self.clock if now is None else now
+            self.clock = max(self.clock, self.first_shot_at)
         return True
 
     def _shot_speed(self, power):
@@ -170,8 +193,17 @@ class BilliardsMotion:
 
     def aim_guide(self):
         """Predict the opening shot and one outgoing leg per moving ball."""
+        return self.aim_preview()[0]
+
+    def aim_preview(self):
+        """Return ``(lines, circles)``: the predicted paths and the collision circles to show faintly.
+
+        Collisions use circles of ``self.radius``, a little larger than the drawn icon, so the
+        ``ghost`` circle (the white ball at the moment of contact) and the ``target`` circle make
+        the real contact point visible.
+        """
         if self.state != 'ready':
-            return ()
+            return (), ()
         x, y, radius = self.white.x, self.white.y, self.white.radius
         dx, dy = self.aim
         speed = self._shot_speed(max(MIN_SHOT_CHARGE, self.charge))
@@ -184,14 +216,18 @@ class BilliardsMotion:
             lines.append(('incoming', (x + dx * gap, y + dy * gap), hit))
         vx, vy = velocity
         outgoing = []
+        circles = []
         if kind == 'rail':
             hit_x, hit_y = contact
             rebound = (-vx * RAIL_REBOUND if hit_x else vx, -vy * RAIL_REBOUND if hit_y else vy)
             outgoing.append(('white', hit, rebound, radius, targets))
+            circles.append(('ghost', hit, radius))
         elif kind == 'ball':
             target = contact
             target_pos = target.x, target.y
             separation = math.dist(hit, target_pos)
+            circles.append(('ghost', hit, radius))
+            circles.append(('target', target_pos, target.radius))
             if separation > 1e-6:
                 nx, ny = (target.x - hit[0]) / separation, (target.y - hit[1]) / separation
                 impulse = (vx * nx + vy * ny) * BALL_IMPULSE
@@ -203,7 +239,7 @@ class BilliardsMotion:
             end, _, _, _ = self._guide_leg(start, motion, size, obstacles)
             if math.dist(start, end) >= 2:
                 lines.append((role, start, end))
-        return tuple(lines)
+        return tuple(lines), tuple(circles)
 
     def _guide_leg(self, origin, velocity, radius, obstacles):
         """Return endpoint, contact type, contact data and remaining velocity."""
@@ -253,9 +289,7 @@ class BilliardsMotion:
                           if age + dt < EXIT_SECONDS}
         if self.state == 'finished':
             return
-        if self.round_started_at is None:
-            self.round_started_at = now
-        self.round_seconds = int(now - self.round_started_at)
+        self.clock = now
         if self.state == 'return_white':
             self.ready_for += dt
             if self.ready_for >= .8:
@@ -312,6 +346,7 @@ class BilliardsMotion:
             self.ready_for = 0.
             if cleared:
                 self.state = 'finished'
+                self.finished_at = now
             elif self.white_sunk:
                 self.state = 'return_white'
             else:

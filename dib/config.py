@@ -25,6 +25,10 @@ ICON_PATH = ASSETS / 'desktop-icon-billiards.ico'
 DEFAULT_UPDATE_URL = 'https://go.liuxiaogang.com/desktop-icon-billiards-update'
 UPDATE_URL = os.environ.get('DIB_UPDATE_URL', DEFAULT_UPDATE_URL).strip()
 
+# Origin of the ranking server (https, no path). Empty disables the ranking feature.
+DEFAULT_RANK_URL = 'https://billiards-rank-api.liuxiaogang.com'
+RANK_URL = os.environ.get('DIB_RANK_URL', DEFAULT_RANK_URL).strip()
+
 # Separate app identity and a shared guard for the Explorer icon layer.
 DESKTOP_GUARD = r'Local\MusicRhythmNativeV2'
 MUTEX = r'Local\DesktopIconBilliards'

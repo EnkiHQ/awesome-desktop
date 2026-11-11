@@ -19,20 +19,17 @@ import win32con
 from PIL import Image, ImageTk
 from tkinter import messagebox, scrolledtext, ttk
 
-from . import config
+from . import config, diag
 from .display import dpi_context
 from .instance import acquire_instance, claim_instance_mutex, publish_version
 from .overlay import BilliardsOverlay
+from .panel import MainPanel
 from .paths import runtime_directory
+from .rank import RankApi, RankController, RankSettings, data_directory
 from .runner import BilliardsRunner
 from .shell import LayoutSession, ShellDesktop
 from .update import fetch_update, release_entries
 
-BG = '#0d1917'
-PANEL = '#132320'
-TEXT = '#e2f2ec'
-MUTED = '#93aea6'
-ACCENT = '#69ddb3'
 
 HINTS = {
     'ready': '瞄准 · 长按蓄力 · 松手击球',
@@ -42,6 +39,15 @@ HINTS = {
     'ball_in_hand': '白球入袋 · 点击空处摆球',
     'finished': '清台 · 本局完成',
 }
+
+RANK_CONSENT = (
+    '开启后，每局清台时会向排名服务器提交：\n'
+    '  • 本局用时、图标数量、击球次数\n'
+    '  • 一个匿名设备标识（由本机系统 ID 加盐哈希得到，无法还原）\n\n'
+    '不会上传图标名称、桌面截图或任何个人文件信息。可随时在主窗口关闭。\n\n'
+    '是否开启全球排名？'
+)
+RANK_INTRO = '现在可以和全球玩家比谁清台更快了。\n\n' + RANK_CONSENT
 
 
 def _write_log(name, text):
@@ -65,7 +71,6 @@ class DesktopBilliardsApp:
         self.deadline = 0.0
         self.journal = runtime_directory() / 'layout.json'
         root.title(config.WINDOW_TITLE)
-        root.configure(bg=BG)
         root.resizable(False, False)
         try:
             root.iconbitmap(str(config.ICON_PATH))
@@ -73,73 +78,21 @@ class DesktopBilliardsApp:
             pass
         ctypes.windll.user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-2))
         publish_version(root, config.VERSION)
-        style = ttk.Style(root)
-        style.theme_use('clam')
-        style.configure('Panel.TFrame', background=BG)
-        style.configure('Stats.TFrame', background=PANEL)
-        style.configure('Table.TLabel', background=BG, foreground=TEXT,
-                        font=('Microsoft YaHei UI', 9))
-        style.configure('Muted.TLabel', background=BG, foreground=MUTED,
-                        font=('Microsoft YaHei UI', 8))
-        style.configure('StatTitle.TLabel', background=PANEL, foreground=MUTED,
-                        font=('Microsoft YaHei UI', 9))
-        style.configure('StatValue.TLabel', background=PANEL, foreground=TEXT,
-                        font=('Segoe UI', 20, 'bold'))
-        style.configure('Table.TButton', padding=(11, 6), font=('Microsoft YaHei UI', 9),
-                        background=PANEL, foreground=TEXT, borderwidth=0,
-                        focusthickness=1, focuscolor=ACCENT)
-        style.map('Table.TButton',
-                  background=[('active', '#1d3531'), ('pressed', '#24423c')],
-                  foreground=[('disabled', MUTED)])
-        style.configure('Primary.Table.TButton', background=ACCENT, foreground=BG)
-        style.map('Primary.Table.TButton', background=[('pressed', '#4dbb94'), ('active', '#86eac8')])
-        style.configure('GuideOn.Table.TButton', background='#234e42', foreground='#a5f8d5')
-        style.map('GuideOn.Table.TButton', background=[('pressed', '#1d4438'), ('active', '#2c5e50')])
-        style.configure('GuideOff.Table.TButton', background='#303d3b', foreground='#c0cecb')
-        style.map('GuideOff.Table.TButton', background=[('pressed', '#25302e'), ('active', '#3d4b48')])
-        style.configure('Donate.Table.TButton', foreground='#f2ca87')
-
-        header = ttk.Frame(root, padding=(14, 12, 14, 8), style='Panel.TFrame')
-        header.pack(fill='x')
-        self.status = tk.StringVar(root, value='正在摆球…')
-        ttk.Label(header, textvariable=self.status, width=28, style='Table.TLabel').pack(side='left')
+        self.rank = self.make_rank()
+        self.rank_offered = False
         self.guide_enabled = True
-        self.guide_button = ttk.Button(header, text='辅助线 · 开', width=11, command=self.toggle_guide,
-                                       style='GuideOn.Table.TButton')
-        self.guide_button.pack(side='right')
-
-        stats = ttk.Frame(root, padding=(12, 8), style='Stats.TFrame')
-        stats.pack(fill='x', padx=14)
-        self.time_title = tk.StringVar(root, value='本局用时')
-        self.time_value = tk.StringVar(root, value='00:00')
-        self.count_title = tk.StringVar(root, value='图标入袋')
-        self.count_value = tk.StringVar(root, value='—')
-        remaining_title = tk.StringVar(root, value='剩余图标')
-        self.remaining_value = tk.StringVar(root, value='—')
-        for column, (title, value) in enumerate(((self.time_title, self.time_value),
-                                                (self.count_title, self.count_value),
-                                                (remaining_title, self.remaining_value))):
-            stats.columnconfigure(column, weight=1, uniform='stats')
-            ttk.Label(stats, textvariable=title, style='StatTitle.TLabel').grid(row=0, column=column, sticky='w')
-            ttk.Label(stats, textvariable=value, style='StatValue.TLabel').grid(row=1, column=column, sticky='w')
-
-        bar = ttk.Frame(root, padding=(14, 10, 14, 7), style='Panel.TFrame')
-        bar.pack(fill='x')
-        ttk.Button(bar, text='重新开始', command=self.restart, style='Primary.Table.TButton').pack(side='left')
-        self.update_button = ttk.Button(bar, text='检查更新', command=lambda: self.check_updates(manual=True),
-                                        style='Table.TButton')
-        self.update_button.pack(side='left', padx=(6, 0))
-        ttk.Button(bar, text='退出', command=self.close, style='Table.TButton').pack(side='right')
-        ttk.Button(bar, text='打赏', command=self.show_donation,
-                   style='Donate.Table.TButton').pack(side='right', padx=(0, 6))
-        footer = ttk.Frame(root, padding=(14, 0, 14, 9), style='Panel.TFrame')
-        footer.pack(fill='x')
-        ttk.Label(footer, text='Esc / Ctrl+Alt+X 退出并恢复桌面', style='Muted.TLabel').pack(side='left')
-        ttk.Label(footer, text=f'v{config.VERSION}', style='Muted.TLabel').pack(side='right')
         self.update_results = queue.SimpleQueue()
-        self.update_feedback = tk.StringVar(root)
-        ttk.Label(footer, textvariable=self.update_feedback, width=14, anchor='e',
-                  style='Muted.TLabel').pack(side='right', padx=(0, 8))
+        self.panel = panel = MainPanel(root, config.VERSION, {
+            'restart': self.restart, 'toggle_guide': self.toggle_guide, 'toggle_rank': self.toggle_rank,
+            'check_updates': lambda: self.check_updates(manual=True), 'donate': self.show_donation,
+            'quit': self.close,
+        })
+        self.status, self.rank_text, self.update_feedback = panel.status, panel.rank_text, panel.update_feedback
+        self.time_title, self.time_value = panel.time_title, panel.time_value
+        self.count_title, self.count_value = panel.count_title, panel.count_value
+        self.remaining_value = panel.remaining_value
+        self.guide_button, self.update_button, self.rank_button = panel.guide_button, panel.update_button, panel.rank_button
+        self.refresh_rank_button()
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.bind('<Escape>', lambda event: self.close())
         root.update_idletasks()
@@ -150,6 +103,42 @@ class DesktopBilliardsApp:
             None, config.HOTKEY_ID, config.HOTKEY_MODIFIERS, config.HOTKEY_VK))
         root.after(20, self.start)
         root.after(1500, self.check_updates)
+
+    @staticmethod
+    def make_rank():
+        """Ranking is optional: a missing or invalid server address just disables it."""
+        if config.RANK_URL:
+            try:
+                api = RankApi(config.RANK_URL, config.VERSION)
+                return RankController(api, RankSettings(data_directory() / 'rank.json'))
+            except (ValueError, OSError):
+                _write_log('rank.log', traceback.format_exc())
+        return RankController(None, None)
+
+    def refresh_rank_button(self):
+        if not self.rank.available:
+            self.rank_button.set('排名 —', 'off', enabled=False)
+            return
+        on = self.rank.enabled
+        self.rank_button.set('排名 开' if on else '排名 关', 'on' if on else 'off', enabled=True)
+
+    def offer_rank(self):
+        """Ask once, on the first run after the feature exists, whether to join the ranking."""
+        if self.closing or not self.rank.needs_prompt:
+            return
+        self.rank.mark_prompted()
+        if messagebox.askyesno('全球排名', RANK_INTRO, parent=self.root):
+            self.rank.set_enabled(True)
+        self.refresh_rank_button()
+
+    def toggle_rank(self):
+        if not self.rank.available:
+            return
+        if self.rank.enabled:
+            self.rank.set_enabled(False)
+        elif messagebox.askokcancel('全球排名', RANK_CONSENT, parent=self.root):
+            self.rank.set_enabled(True)
+        self.refresh_rank_button()
 
     def show_donation(self):
         if self.donation is not None and self.donation.winfo_exists():
@@ -177,9 +166,9 @@ class DesktopBilliardsApp:
         dialog.bind('<Escape>', lambda event: dialog.destroy())
 
     def check_updates(self, manual=False):
-        if self.closing or self.update_button.instate(('disabled',)):
+        if self.closing or not self.update_button.enabled:
             return
-        self.update_button.configure(state='disabled', text='检查中…')
+        self.update_button.set('检查中…', enabled=False)
         self.update_feedback.set('')
 
         def fetch():
@@ -202,7 +191,7 @@ class DesktopBilliardsApp:
         except queue.Empty:
             self.root.after(100, self.finish_update_check, manual)
             return
-        self.update_button.configure(state='normal', text='检查更新')
+        self.update_button.set('检查更新', enabled=True)
         if info:
             self.show_update(info)
         elif manual:
@@ -236,6 +225,7 @@ class DesktopBilliardsApp:
     def start(self):
         if self.closing:
             return
+        diag.start_session(config.VERSION)
         try:
             desktop = ShellDesktop()
             # Recover a journal left behind by an earlier crash before starting.
@@ -292,6 +282,9 @@ class DesktopBilliardsApp:
                             raise RuntimeError('无法启动桌面恢复守护。')
                         self.runner.request_show(self.session.snapshot, self.journal)
             else:
+                if not self.rank_offered:
+                    self.rank_offered = True
+                    self.root.after(800, self.offer_rank)
                 overlay = self.runner.overlay
                 table = overlay.table
                 state = table.state
@@ -302,7 +295,11 @@ class DesktopBilliardsApp:
                     label = '白球入袋 · 等其他球停稳'
                 elif state == 'ready' and table.charge:
                     label = '松手击球'
+                blocked = bool(overlay.blocked_by and not overlay.transition)
+                if blocked:
+                    label = f'鼠标被「{overlay.blocked_by}」挡住，无法击球'
                 self.status.set(label)
+                self.panel.set_tone('warn' if blocked else 'ok')
                 minutes, seconds = divmod(table.round_seconds, 60)
                 self.time_value.set(f'{minutes:02d}:{seconds:02d}')
                 total = len(table.icons)
@@ -312,6 +309,15 @@ class DesktopBilliardsApp:
                 self.count_title.set('图标总数' if finished else '图标入袋')
                 self.count_value.set(str(total) if finished else f'{pocketed}/{total}')
                 self.remaining_value.set(str(total - pocketed))
+                try:
+                    self.rank.observe(table)
+                    lines = self.rank.lines(table)
+                    if not finished:  # the finished summary already states the ball count
+                        lines = [overlay.ball_info, *lines]
+                    self.rank_text.set('\n'.join(lines))
+                except Exception:
+                    # Ranking must never interrupt a game or the desktop restore.
+                    _write_log('rank.log', traceback.format_exc())
             self.root.after(50, self.poll)
         except Exception as exc:
             self.fail(exc)
@@ -322,8 +328,8 @@ class DesktopBilliardsApp:
 
     def toggle_guide(self):
         self.guide_enabled = not self.guide_enabled
-        self.guide_button.configure(text='辅助线 · 开' if self.guide_enabled else '辅助线 · 关',
-                                    style='GuideOn.Table.TButton' if self.guide_enabled else 'GuideOff.Table.TButton')
+        self.guide_button.set('辅助线 开' if self.guide_enabled else '辅助线 关',
+                              'on' if self.guide_enabled else 'off')
         if self.runner:
             self.runner.overlay.guide_enabled = self.guide_enabled
 
@@ -357,6 +363,7 @@ class DesktopBilliardsApp:
                                    parent=self.root)
             return
         self.closing = True
+        self.rank.close()
         if self.hotkey:
             ctypes.windll.user32.UnregisterHotKey(None, config.HOTKEY_ID)
         ctypes.windll.kernel32.CloseHandle(self.instance_handle)

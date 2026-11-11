@@ -4,7 +4,8 @@ import unittest
 
 from PIL import Image, ImageFont, ImageStat
 
-from dib.art import charge_art, cue_art, pocket_particles, table_art, white_art
+from dib.art import (GUIDE_DARK, GUIDE_LIGHT, charge_art, cue_art, guide_art, guide_palette, pocket_particles,
+                     table_art, white_art)
 from dib.table import BilliardsMotion
 
 
@@ -103,6 +104,79 @@ class CueArtTests(unittest.TestCase):
         thin_alpha = ImageStat.Stat(thin.getchannel('A')).sum[0]
         thick_alpha = ImageStat.Stat(thick.getchannel('A')).sum[0]
         self.assertGreater(thick_alpha, thin_alpha)
+
+
+class GuideArtTests(unittest.TestCase):
+    LINES = (('incoming', (100., 100.), (300., 100.)), ('target', (300., 100.), (360., 180.)))
+
+    @staticmethod
+    def coverage(frame):
+        return ImageStat.Stat(frame.getchannel('A')).sum[0]
+
+    def test_frame_covers_lines_and_circles_on_a_64_pixel_grid(self):
+        circles = (('ghost', (300., 100.), 30.), ('target', (330., 140.), 30.))
+        frame, left, top = guide_art(self.LINES, circles)
+        self.assertEqual((frame.width % 64, frame.height % 64), (0, 0))
+        self.assertLessEqual(left, 100 - 9)
+        self.assertLessEqual(top, 70 - 9)  # the ghost circle reaches above the lines
+        self.assertGreaterEqual(left + frame.width, 360 + 9)
+        self.assertGreaterEqual(top + frame.height, 180 + 9)
+
+    def test_palette_follows_the_wallpaper_brightness(self):
+        self.assertIs(guide_palette(None, (0, 0), (10, 0)), GUIDE_DARK)
+        self.assertIs(guide_palette(lambda x, y: 40, (0, 0), (10, 0)), GUIDE_DARK)
+        self.assertIs(guide_palette(lambda x, y: 230, (0, 0), (10, 0)), GUIDE_LIGHT)
+        self.assertIs(guide_palette(lambda x, y: None, (0, 0), (10, 0)), GUIDE_DARK)
+
+    def test_dashes_stay_visible_on_dark_and_bright_backgrounds(self):
+        dark, bright = guide_art(self.LINES, (), lambda x, y: 20)[0], guide_art(self.LINES, (), lambda x, y: 240)[0]
+        for frame, core, casing in ((dark, GUIDE_DARK['incoming'], GUIDE_DARK['casing']),
+                                    (bright, GUIDE_LIGHT['incoming'], GUIDE_LIGHT['casing'])):
+            row = 100 - 91  # the incoming line's y inside the frame (top = 100 - 9)
+            pixels = [frame.getpixel((x, row)) for x in range(12, 200)]
+            self.assertTrue(any(abs(p[0] - core[0]) < 30 and p[3] > 200 for p in pixels), 'core colour missing')
+            edge = [frame.getpixel((x, row - 2)) for x in range(12, 200)]
+            self.assertTrue(any(p[3] > 120 and abs(p[0] - casing[0]) < 40 for p in edge), 'casing missing')
+
+    def test_dashes_have_gaps(self):
+        frame = guide_art((('incoming', (100., 100.), (300., 100.)),), (), None)[0]
+        row = [frame.getpixel((x, 100 - 91))[3] for x in range(10, 200)]
+        self.assertTrue(any(value < 20 for value in row) and any(value > 200 for value in row))
+
+    def test_circles_add_faint_marks_without_hiding_the_lines(self):
+        plain = guide_art(self.LINES)[0]
+        ringed = guide_art(self.LINES, (('ghost', (300., 100.), 20.),))[0]
+        self.assertGreater(self.coverage(ringed), self.coverage(plain) * .99)
+
+
+class AimPreviewTests(unittest.TestCase):
+    def test_a_ball_hit_reports_the_ghost_and_target_circles(self):
+        game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
+        target = game.icons[0]
+        target.x, target.y = game.white.x + 240, game.white.y
+        game.icons[1].y = game.white.y - 300
+        game.aim_at(target.x, game.white.y)
+        lines, circles = game.aim_preview()
+        self.assertEqual(game.aim_guide(), lines)
+        roles = {role: (centre, radius) for role, centre, radius in circles}
+        self.assertAlmostEqual(roles['ghost'][0][0], target.x - (target.radius + game.white.radius))
+        self.assertEqual(roles['ghost'][1], game.white.radius)
+        self.assertEqual(roles['target'], ((target.x, target.y), target.radius))
+        # The collision circle is larger than the drawn icon, which is what the faint ring reveals.
+        self.assertGreater(target.radius, game.tile / 2)
+
+    def test_a_rail_hit_only_shows_the_ghost_circle(self):
+        game = BilliardsMotion((0, 0, 4200, 700), [(64, 64)])
+        game.white.x = game.bounds[2] - 180
+        game.icons[0].y = game.white.y - 150
+        game.aim_at(game.bounds[2], game.white.y)
+        _, circles = game.aim_preview()
+        self.assertEqual([role for role, _, _ in circles], ['ghost'])
+
+    def test_nothing_is_previewed_while_balls_move(self):
+        game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
+        game.shoot(.5)
+        self.assertEqual(game.aim_preview(), ((), ()))
 
 
 if __name__ == '__main__':

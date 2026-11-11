@@ -72,28 +72,85 @@ def charge_art(percent, font):
     return frame
 
 
-def guide_art(lines):
-    """Draw the opening path and the two possible outgoing paths."""
-    colors = {'incoming': (235, 250, 245, 196), 'white': (167, 216, 255, 208), 'target': (112, 239, 181, 224)}
-    points = [point for _, start, end in lines for point in (start, end)]
-    xs, ys = zip(*points)
-    left, top = min(xs) - 5, min(ys) - 5
-    width = math.ceil((max(xs) - left + 6) / 64) * 64
-    height = math.ceil((max(ys) - top + 6) / 64) * 64
-    frame = Image.new('RGBA', (width, height))
+# Bright strokes with a dark casing on dark felt, deep strokes with a white casing on bright
+# wallpapers. The casing keeps the dashes readable whatever the background does.
+GUIDE_DARK = {'incoming': (240, 252, 247, 245), 'white': (150, 205, 255, 250), 'target': (108, 245, 183, 250),
+              'casing': (4, 14, 13, 190)}
+GUIDE_LIGHT = {'incoming': (26, 42, 48, 245), 'white': (10, 70, 168, 250), 'target': (0, 118, 68, 250),
+               'casing': (255, 255, 255, 215)}
+BRIGHT_BACKGROUND = 150
+GUIDE_SCALE = 3
+DASH, GAP = 12, 8
+
+
+def guide_palette(luma, start, end):
+    """Pick the light or dark palette from the wallpaper brightness along one guide line."""
+    if luma is None:
+        return GUIDE_DARK
+    samples = [luma(start[0] + (end[0] - start[0]) * t / 4, start[1] + (end[1] - start[1]) * t / 4)
+               for t in range(5)]
+    samples = [value for value in samples if value is not None]
+    if samples and sum(samples) / len(samples) > BRIGHT_BACKGROUND:
+        return GUIDE_LIGHT
+    return GUIDE_DARK
+
+
+def guide_art(lines, circles=(), luma=None):
+    """Draw the aiming preview; returns ``(frame, origin_x, origin_y)``.
+
+    ``lines`` are ``(role, start, end)`` dashed paths. ``circles`` are ``(role, centre, radius)``
+    collision circles, drawn faintly: ``ghost`` is the cue ball at the moment of contact and
+    ``target`` the ball it will hit. ``luma(x, y)`` returns the wallpaper brightness (0-255)
+    under a point, or ``None``, and selects a palette that contrasts with it.
+    """
+    xs = [point[0] for _, start, end in lines for point in (start, end)]
+    ys = [point[1] for _, start, end in lines for point in (start, end)]
+    for _, (cx, cy), radius in circles:
+        xs += [cx - radius, cx + radius]
+        ys += [cy - radius, cy + radius]
+    pad = 9
+    left, top = min(xs) - pad, min(ys) - pad
+    width = math.ceil((max(xs) - left + pad) / 64) * 64
+    height = math.ceil((max(ys) - top + pad) / 64) * 64
+    s = GUIDE_SCALE  # draw enlarged and shrink back: Pillow lines have no anti-aliasing
+    frame = Image.new('RGBA', (width * s, height * s))
     draw = ImageDraw.Draw(frame)
+    for role, (cx, cy), radius in circles:
+        palette = guide_palette(luma, (cx, cy), (cx, cy))
+        box = ((cx - left - radius) * s, (cy - top - radius) * s, (cx - left + radius) * s, (cy - top + radius) * s)
+        core = palette['white' if role == 'ghost' else 'target']
+        if role == 'target':
+            draw.ellipse(box, fill=core[:3] + (26,))
+        draw.ellipse(box, outline=palette['casing'][:3] + (110,), width=round(4.5 * s))
+        draw.ellipse(box, outline=core[:3] + (150 if role == 'ghost' else 125,), width=round(1.8 * s))
+    strokes = []
     for role, start, end in lines:
-        x, y = start[0] - left, start[1] - top
-        end_x, end_y = end[0] - left, end[1] - top
         length = math.dist(start, end)
-        dx, dy = (end_x - x) / length, (end_y - y) / length
-        color = colors[role]
-        for offset in range(0, max(1, math.ceil(length - 5)), 16):
-            stop = min(max(0., length - 5), offset + 8)
-            draw.line((x + dx * offset, y + dy * offset, x + dx * stop, y + dy * stop),
-                      fill=color, width=2)
-        draw.ellipse((end_x - 4, end_y - 4, end_x + 4, end_y + 4), outline=color, width=2)
-    return frame, left, top
+        if length < 1:
+            continue
+        palette = guide_palette(luma, start, end)
+        x, y = (start[0] - left) * s, (start[1] - top) * s
+        dx, dy = (end[0] - start[0]) / length, (end[1] - start[1]) / length
+        usable = max(0., length - 5)
+        dashes = []
+        offset = 0.
+        while offset < max(1., usable):
+            stop = min(usable, offset + DASH)
+            dashes.append(((x + dx * offset * s, y + dy * offset * s), (x + dx * stop * s, y + dy * stop * s)))
+            offset += DASH + GAP
+        strokes.append((palette, palette[role], dashes, ((end[0] - left) * s, (end[1] - top) * s)))
+    # Casings first, then the strokes, so crossing lines never cover each other's outline.
+    for palette, _, dashes, _ in strokes:
+        for a, b in dashes:
+            draw.line((a, b), fill=palette['casing'], width=round(5.5 * s))
+    for palette, color, dashes, tip in strokes:
+        for a, b in dashes:
+            draw.line((a, b), fill=color, width=round(2.6 * s))
+        r = 5 * s
+        draw.ellipse((tip[0] - r - s, tip[1] - r - s, tip[0] + r + s, tip[1] + r + s),
+                     outline=palette['casing'], width=round(2 * s))
+        draw.ellipse((tip[0] - r, tip[1] - r, tip[0] + r, tip[1] + r), outline=color, width=round(2.2 * s))
+    return frame.resize((width, height), Image.Resampling.LANCZOS), left, top
 
 
 def white_art(radius, shaded=False):

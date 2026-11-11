@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import ctypes
 import math
+import os
+import platform
 import struct
 import threading
 from collections import OrderedDict
@@ -20,7 +22,9 @@ import win32gui
 import win32process
 from PIL import Image, ImageDraw, ImageFont
 
+from . import diag
 from .art import charge_art, cue_art, guide_art, pocket_particles, table_art, white_art
+from .balls import MAX_BALLS, ball_summary, fill_sources, priority_order
 from .display import monitors
 from .shell import ShellDesktop
 from .table import MIN_SHOT_CHARGE, BilliardsMotion
@@ -29,8 +33,12 @@ from .wallpaper import primary_wallpaper
 BALL_CANVAS = 128
 INTRO_DURATION = 1.25
 INTRO_STAGGER = 0.025
+RING_LEVELS = 6
+MAX_IMPACT = .23  # the largest ``impact`` value the table produces
+LUMA_CELL = 8  # wallpaper pixels per cell of the brightness map
 WS_EX_LAYERED = 0x80000
 WS_EX_NOACTIVATE = 0x08000000
+SM_SWAPBUTTON = 23
 
 
 class ImageFactory(comtypes.IUnknown):
@@ -113,11 +121,30 @@ def desktop_listview():
     win32gui.EnumWindows(top, None)
     if not found:
         raise RuntimeError('找不到 Explorer 桌面图标窗口')
-    return found[0]
+
+    def score(pair):
+        # Desktop managers and the WorkerW/Progman split can leave several list views;
+        # the real one is visible and holds the icons.
+        try:
+            return bool(win32gui.IsWindowVisible(pair[1])), listview_count(pair[1])
+        except win32gui.error:
+            return False, 0
+
+    return max(found, key=score)  # first one wins ties
 
 
-def item_rects(hwnd, count):
-    """Read the icon and label rectangles from the desktop list view."""
+def listview_count(hwnd):
+    """LVM_GETITEMCOUNT of the desktop list view."""
+    return int(win32gui.SendMessage(hwnd, 0x1004, 0, 0))
+
+
+def item_rects(hwnd, indexes):
+    """Read the icon and label rectangles for list-view ``indexes``.
+
+    An entry is ``None`` when the list view cannot report that item (index beyond its
+    count, a changed desktop, or a third-party desktop manager); the caller skips it
+    instead of abandoning the whole game.
+    """
     kernel = ctypes.windll.kernel32
     kernel.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
     kernel.OpenProcess.restype = W.HANDLE
@@ -134,18 +161,24 @@ def item_rects(hwnd, count):
     try:
         if not pointer:
             raise ctypes.WinError()
+        count = listview_count(hwnd)
         result = []
-        for index in range(count):
-            row = []
+        for index in indexes:
+            row = [] if 0 <= index < count else None
             for kind in (1, 2):
+                if row is None:
+                    break
                 rect = W.RECT(kind, 0, 0, 0)
                 if not kernel.WriteProcessMemory(process, pointer, ctypes.byref(rect), ctypes.sizeof(rect), None):
                     raise ctypes.WinError()
                 if not win32gui.SendMessage(hwnd, 0x100E, index, pointer):
-                    raise RuntimeError('无法读取图标边界')
+                    row = None
+                    break
                 if not kernel.ReadProcessMemory(process, pointer, ctypes.byref(rect), ctypes.sizeof(rect), None):
                     raise ctypes.WinError()
                 row.append((rect.left, rect.top, rect.right, rect.bottom))
+            if row is not None and not (row[0][2] > row[0][0] and row[0][3] > row[0][1]):
+                row = None  # an empty icon rectangle cannot be drawn
             result.append(row)
         return result
     finally:
@@ -240,7 +273,7 @@ class TablePointer:
                 self.held_since = None
                 self.charge_origin = None
                 if over_table:
-                    game.shoot(max(MIN_SHOT_CHARGE, power))
+                    game.shoot(max(MIN_SHOT_CHARGE, power), now)
                 else:
                     game.charge = 0.0
         self.was_down = down
@@ -251,7 +284,17 @@ class BilliardsOverlay:
 
     def __init__(self, desktop, items):
         self.desktop = desktop
-        self.items = items
+        # Own list: the chosen icons and the padding clones are collected here and must never
+        # reach the layout snapshot that the desktop restore reads (``items`` is that list).
+        self.items = []
+        self.desktop_total = len(items)
+        self.real_count = 0
+        self.padded = 0
+        self.skipped = 0
+        self.ball_info = ''
+        self.blocked_by = None
+        self.last_blocked = None
+        self.luma_map = None
         self.table = None
         self.windows = []
         self.surfaces = {}
@@ -277,8 +320,11 @@ class BilliardsOverlay:
         self.fonts = []
         list_origin = win32gui.ClientToScreen(self.listview, (0, 0))
         parent_origin = win32gui.ClientToScreen(self.parent, (0, 0))
-        self.rects = [[map_rect(rect, list_origin, parent_origin) for rect in pair]
-                      for pair in item_rects(self.listview, len(items))]
+        self.log_environment(list_origin, parent_origin)
+        chosen = self.choose_icons(items)
+        self.real_count = len(chosen)
+        self.items = [items[index] for index, _ in chosen]
+        self.rects = [[map_rect(rect, list_origin, parent_origin) for rect in pair] for _, pair in chosen]
         primary = next(m for m in self.monitor_state if m[4])
         self.primary_screen = primary[1]
         self.primary_work = primary[2]
@@ -296,6 +342,17 @@ class BilliardsOverlay:
             info = win32api.GetMonitorInfo(monitor)
             dpi = next(m[3] for m in self.monitor_state if m[0] == info['Device'])
             self.fonts.append(_load_font(max(9, round(12 * dpi / 96))))
+        # Sparse desktops are padded to the minimum ball count by cloning icons; the clones
+        # are overlay-only and start their intro flight from the icon they copy.
+        real = list(self.items)
+        extra = fill_sources(len(real))
+        for source in extra:
+            self.items.append(dict(real[source]))
+            self.rects.append(self.rects[source])
+            self.fonts.append(self.fonts[source])
+        self.padded = len(extra)
+        self.ball_info = ball_summary(self.desktop_total, self.real_count, self.padded)
+        diag.log(f'balls: {self.ball_info}', f'primary work area (parent coords): {self.primary_bounds}')
         self.was_visible = win32gui.IsWindowVisible(self.listview)
         if not self.was_visible:
             raise RuntimeError('桌面图标当前已隐藏，请先在桌面菜单中显示图标。')
@@ -311,16 +368,69 @@ class BilliardsOverlay:
             if exc.winerror != 1410:
                 raise
 
+    def choose_icons(self, items):
+        """Pick up to MAX_BALLS desktop icons by priority; skip ones the list view cannot report.
+
+        Returns ``[(shell_index, (icon_rect, label_rect)), ...]`` in desktop order.
+        """
+        order = priority_order(items)
+        chosen, skipped, position = [], [], 0
+        while len(chosen) < MAX_BALLS and position < len(order):
+            batch = order[position:position + MAX_BALLS - len(chosen)]
+            position += len(batch)
+            for index, pair in zip(batch, item_rects(self.listview, batch)):
+                if pair is None:
+                    skipped.append(index)
+                else:
+                    chosen.append((index, pair))
+        self.skipped = len(skipped)
+        diag.log(f'icons: shell={len(items)} listview={listview_count(self.listview)} '
+                 f'chosen={len(chosen)} unreadable={skipped[:20]}')
+        if not chosen:
+            raise RuntimeError('无法读取桌面图标的位置。请确认桌面图标已显示，并且没有被桌面整理软件接管。')
+        chosen.sort(key=lambda row: row[0])
+        return chosen
+
+    def log_environment(self, list_origin, parent_origin):
+        """Record the display and Explorer facts that multi-monitor bugs depend on."""
+        try:
+            user32 = ctypes.windll.user32
+            user32.GetWindowDpiAwarenessContext.argtypes = [W.HWND]
+            user32.GetWindowDpiAwarenessContext.restype = ctypes.c_void_p
+            user32.GetAwarenessFromDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+            user32.GetAwarenessFromDpiAwarenessContext.restype = ctypes.c_int
+
+            def describe(name, hwnd, origin):
+                awareness = user32.GetAwarenessFromDpiAwarenessContext(user32.GetWindowDpiAwarenessContext(hwnd))
+                return (f'{name}: hwnd={hwnd} class={win32gui.GetClassName(hwnd)} visible={win32gui.IsWindowVisible(hwnd)} '
+                        f'client={win32gui.GetClientRect(hwnd)} window={win32gui.GetWindowRect(hwnd)} '
+                        f'screen-origin={origin} dpi-awareness(0=unaware,1=system,2=per-monitor)={awareness}')
+
+            lines = [f'windows: {platform.platform()}',
+                     f'virtual screen / monitors: {self.geometry}']
+            lines += [f'monitor device={m[0]} rect={m[1]} work={m[2]} dpi={m[3]} primary={m[4]}'
+                      for m in self.monitor_state]
+            lines += [describe('desktop parent', self.parent, parent_origin),
+                      describe('desktop listview', self.listview, list_origin),
+                      f'swapped mouse buttons: {bool(win32api.GetSystemMetrics(SM_SWAPBUTTON))}']
+            diag.log(*lines)
+        except Exception as exc:  # diagnostics only
+            diag.log(f'environment logging failed: {exc!r}')
+
     # -- preparation -------------------------------------------------------
     def prepare(self):
         # Run in a worker: thumbnail extraction can access disk / Shell extensions.
         comtypes.CoInitialize()
         try:
+            extracted = {}
             for item, (icon, label) in zip(self.items, self.rects):
                 size = min(icon[2] - icon[0], icon[3] - icon[1])
-                source = artwork(item['id'], size)
-                source.thumbnail((size, size), Image.Resampling.LANCZOS)
-                self.sources.append(source)
+                key = (item['id'], size)
+                if key not in extracted:  # padding balls reuse the artwork of the icon they copy
+                    source = artwork(item['id'], size)
+                    source.thumbnail((size, size), Image.Resampling.LANCZOS)
+                    extracted[key] = source
+                self.sources.append(extracted[key].copy())
             self.build_templates()
             screens = [monitor[1] for monitor in self.monitor_state]
             desktop_bounds = (min(rect[0] for rect in screens), min(rect[1] for rect in screens),
@@ -328,6 +438,10 @@ class BilliardsOverlay:
             wallpaper = primary_wallpaper(self.primary_screen, desktop_bounds)
             if wallpaper is not None:
                 wallpaper = wallpaper.crop(map_rect(self.primary_work, (0, 0), self.primary_screen[:2]))
+                # Coarse brightness map: the aim guide picks a palette that contrasts with it.
+                self.luma_map = wallpaper.convert('L').resize(
+                    (max(1, wallpaper.width // LUMA_CELL), max(1, wallpaper.height // LUMA_CELL)),
+                    Image.Resampling.BOX)
             self.rail_frame = table_art(self.table, wallpaper)
         finally:
             comtypes.CoUninitialize()
@@ -431,12 +545,25 @@ class BilliardsOverlay:
         x, y = win32gui.ScreenToClient(self.parent, screen)
         left, top, right, bottom = self.table.bounds
         on_desktop = False
+        blocked = None
         if left <= x <= right and top <= y <= bottom:
             hwnd = win32gui.WindowFromPoint(screen)
-            if hwnd:
-                top_window = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
-                on_desktop = bool(top_window and win32gui.GetClassName(top_window) in ('Progman', 'WorkerW'))
-        down = bool(win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000)
+            top_window = win32gui.GetAncestor(hwnd, win32con.GA_ROOT) if hwnd else 0
+            if top_window:
+                name = win32gui.GetClassName(top_window)
+                on_desktop = name in ('Progman', 'WorkerW')
+                if not on_desktop and win32process.GetWindowThreadProcessId(top_window)[1] != os.getpid():
+                    title = win32gui.GetWindowText(top_window)[:30]
+                    blocked = f'{name}「{title}」' if title else name
+        self.blocked_by = blocked
+        if blocked != self.last_blocked:
+            self.last_blocked = blocked
+            if blocked:
+                diag.log(f'mouse over the table is blocked by another window: {blocked}')
+        # GetAsyncKeyState reports the physical buttons; with swapped buttons the player's
+        # primary (logical left) button is the physical right one.
+        button = win32con.VK_RBUTTON if win32api.GetSystemMetrics(SM_SWAPBUTTON) else win32con.VK_LBUTTON
+        down = bool(win32api.GetAsyncKeyState(button) & 0x8000)
         self.pointer.update(self.table, now, x, y, down, on_desktop)
 
     # -- drawing -----------------------------------------------------------
@@ -492,17 +619,21 @@ class BilliardsOverlay:
                 height = max(1, round(height * (1 - fade * 0.54)))
                 alpha = round(255 * (1 - fade) ** 1.35)
                 self.poses[index] = (cx, cy, width, height, angle, 0, 0.0)
-            key = (round(cx), round(cy), width, height, angle, alpha, round(fade * 40)) if alpha or effect else (0,)
+            # A faint ring flashes at the collision radius while a ball is being hit.
+            impact = self.table.icons[index].impact
+            ring = min(RING_LEVELS, math.ceil(impact / MAX_IMPACT * RING_LEVELS)) if alpha == 255 and impact > .012 else 0
+            key = ((round(cx), round(cy), width, height, angle, alpha, round(fade * 40), ring)
+                   if alpha or effect else (0,))
             if self.drawn[index] == key:
                 continue
-            frame = self.sprite_frame(self.sources[index], index, width, height, angle, alpha)
+            frame = self.sprite_frame(self.sources[index], index, width, height, angle, alpha, ring)
             if fade:
                 frame = pocket_particles(frame, index, fade)
             self.present(hwnd, frame, round(cx - BALL_CANVAS / 2), round(cy - BALL_CANVAS / 2))
             self.drawn[index] = key
 
-    def sprite_frame(self, source, identity, width, height, angle, alpha=255):
-        key = (identity, width, height, angle, BALL_CANVAS, alpha)
+    def sprite_frame(self, source, identity, width, height, angle, alpha=255, ring=0):
+        key = (identity, width, height, angle, BALL_CANVAS, alpha, ring)
         if key in self.frame_cache:
             self.frame_cache.move_to_end(key)
             return self.frame_cache[key]
@@ -514,12 +645,26 @@ class BilliardsOverlay:
                 picture.putalpha(picture.getchannel('A').point([value * alpha // 255 for value in range(256)]))
             frame.alpha_composite(picture, ((BALL_CANVAS - picture.width) // 2,
                                             (BALL_CANVAS - picture.height) // 2))
+            if ring:
+                frame.alpha_composite(self.ring_layer(ring))
         self.frame_cache[key] = frame
         self.frame_cache_bytes += BALL_CANVAS * BALL_CANVAS * 4
         while len(self.frame_cache) > 256 or self.frame_cache_bytes > 16 * 1024 * 1024:
             _, old = self.frame_cache.popitem(last=False)
             self.frame_cache_bytes -= old.width * old.height * 4
         return frame
+
+    def ring_layer(self, level):
+        """The collision circle of one ball, drawn very faintly (``level`` 1..RING_LEVELS)."""
+        scale = 3
+        layer = Image.new('RGBA', (BALL_CANVAS * scale, BALL_CANVAS * scale))
+        radius = self.table.radius * scale
+        centre = BALL_CANVAS * scale / 2
+        box = (centre - radius, centre - radius, centre + radius, centre + radius)
+        alpha = round(28 + 12 * level)
+        draw = ImageDraw.Draw(layer)
+        draw.ellipse(box, fill=(190, 255, 232, alpha // 5), outline=(190, 255, 232, alpha), width=2 * scale)
+        return layer.resize((BALL_CANVAS, BALL_CANVAS), Image.Resampling.LANCZOS)
 
     def table_window(self, part):
         hwnd = win32gui.CreateWindowEx(
@@ -583,18 +728,28 @@ class BilliardsOverlay:
                                 win32con.SWP_SHOWWINDOW | win32con.SWP_NOZORDER)
         self.cue_key = key
 
+    def background_luma(self, x, y):
+        """Wallpaper brightness (0-255) under a table point, or None without a readable wallpaper."""
+        if self.luma_map is None:
+            return None
+        origin_x, origin_y = self.table.work_area[:2]
+        px, py = int((x - origin_x) // LUMA_CELL), int((y - origin_y) // LUMA_CELL)
+        width, height = self.luma_map.size
+        return self.luma_map.getpixel((px, py)) if 0 <= px < width and 0 <= py < height else None
+
     def draw_guide(self):
-        lines = self.table.aim_guide() if self.guide_enabled and self.transition is None else ()
+        lines, circles = self.table.aim_preview() if self.guide_enabled and self.transition is None else ((), ())
         rounded = [(role, (round(x0), round(y0)), (round(x1), round(y1)))
                    for role, (x0, y0), (x1, y1) in lines]
-        key = tuple((role, start, end) for role, start, end in rounded if start != end) or None
+        lines_key = tuple((role, start, end) for role, start, end in rounded if start != end)
+        key = (lines_key, tuple((role, (round(x), round(y)), round(radius)) for role, (x, y), radius in circles))             if lines_key else None
         if key == self.guide_key:
             return
         hwnd = self.table_windows['guide']
         if key is None:
             win32gui.ShowWindow(hwnd, win32con.SW_HIDE)
         else:
-            self.present(hwnd, *guide_art(key))
+            self.present(hwnd, *guide_art(key[0], key[1], self.background_luma))
             if self.guide_key is None:
                 self.position_layer(hwnd, win32con.HWND_TOP, win32con.SWP_SHOWWINDOW | win32con.SWP_NOZORDER)
         self.guide_key = key

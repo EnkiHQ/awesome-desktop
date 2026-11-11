@@ -150,7 +150,9 @@ class BilliardsMotionTests(unittest.TestCase):
 
     def test_round_counts_icons_and_freezes_time_until_restart(self):
         game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
-        game.step(.01, 10)
+        game.step(.01, 5)
+        self.assertEqual(game.round_seconds, 0)  # aiming before the first shot is not timed
+        self.assertTrue(game.shoot(1, 10))
         game.state = 'rolling'
         game.white.x, game.white.y = game.pockets[0]
         game.icons[0].x, game.icons[0].y = game.pockets[1]
@@ -176,8 +178,40 @@ class BilliardsMotionTests(unittest.TestCase):
         self.assertTrue(game.break_shot)
         self.assertEqual(len(game.bodies), 3)
         game.step(.01, 61)
+        self.assertTrue(game.shoot(1, 61))
         game.step(.01, 63)
         self.assertEqual(game.round_seconds, 2)
+
+    def test_round_timer_is_integer_milliseconds_from_first_shot_to_clear(self):
+        game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
+        serial = game.round_serial
+        self.assertEqual((game.play_ms, game.shots), (0, 0))
+        game.step(.01, 100.0)
+        self.assertEqual(game.play_ms, 0)
+        self.assertTrue(game.shoot(1, 100.0123))
+        self.assertEqual(game.shots, 1)
+        game.state = 'rolling'
+        game.step(.01, 101.0)
+        self.assertEqual(game.play_ms, 988)  # 101.0 - 100.0123 = 0.9877 s
+        for icon, pocket in zip(game.icons, game.pockets[1:]):
+            icon.x, icon.y = pocket
+        game.state = 'rolling'
+        game.step(.01, 102.5)
+        self.assertEqual(game.state, 'finished')
+        self.assertEqual(game.play_ms, 2488)
+        self.assertIsInstance(game.play_ms, int)
+        game.step(.05, 500.0)
+        self.assertEqual(game.play_ms, 2488)  # frozen after the clear
+
+        game.reset()
+        self.assertEqual((game.play_ms, game.shots), (0, 0))
+        self.assertEqual(game.round_serial, serial + 1)
+
+    def test_only_accepted_shots_are_counted(self):
+        game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
+        self.assertTrue(game.shoot(1, 1.0))
+        self.assertFalse(game.shoot(1, 1.1))  # already in the stroke
+        self.assertEqual(game.shots, 1)
 
     def test_aim_guide_predicts_both_directions_after_a_cut_shot(self):
         game = BilliardsMotion((0, 0, 1600, 1000), [(64, 64)] * 2)
