@@ -17,3 +17,7 @@ update.local.json
 
 # Website is deployed separately.
 /website/
+
+# Compiled pet and a local avatar. The avatar is not part of the public repo.
+/pet/bin/
+/pet/skins/local/

@@ -44,7 +44,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["dib", "arcade"]
+packages = ["dib", "arcade", "pet"]
 include-package-data = false
 
 [tool.setuptools.dynamic]

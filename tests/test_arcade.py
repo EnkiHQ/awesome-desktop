@@ -40,8 +40,9 @@ def shake(host, guest, host_table, guest_table):
 
 class CatalogueTests(unittest.TestCase):
     def test_billiards_is_playable_and_breakout_is_only_planned(self):
-        self.assertEqual([game.id for game in GAMES], ['billiards', 'breakout'])
+        self.assertEqual([game.id for game in GAMES], ['billiards', 'breakout', 'mirror'])
         self.assertTrue(by_id('billiards').playable)
+        self.assertTrue(by_id('mirror').playable)
         self.assertFalse(by_id('breakout').playable)
         self.assertIn('横杆', by_id('breakout').summary)
 
