@@ -20,6 +20,8 @@ AUTHOR = 'LXG'
 # table, so screenshots and recordings of the game keep their source.
 CREDIT = 'GitHub@liuxiaogang-com'
 CREDIT_URL = 'https://github.com/liuxiaogang-com'
+# The project's landing page, printed on the shareable result card.
+SITE_TEXT = 'go.liuxiaogang.com/zmtq'
 WINDOW_TITLE = f'{PRODUCT_NAME} {VERSION}'
 
 BASE = Path(__file__).resolve().parent.parent

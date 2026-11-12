@@ -314,6 +314,9 @@ class RankController:
                 this, best = payload['round'], payload['best']
                 return {
                     'phase': 'ok',
+                    'rank': int(this['rank']),
+                    'percentile': int(this['percentile']),
+                    'best_rank': int(best['rank']),
                     'rank_text': f'第 {this["rank"]:,} 名',
                     'percentile_text': f'超过 {this["percentile"]}% 的玩家',
                     'best_text': ('新的个人最佳 · ' if payload.get('is_personal_best') else '')

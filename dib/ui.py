@@ -359,7 +359,8 @@ class DesktopBilliardsApp:
             self.result_serial = table.round_serial
             self.result_dialog = ResultDialog(self.root, {'again': self.play_again,
                                                           'enable_rank': self.enable_rank_from_dialog,
-                                                          'open_credit': self.open_credit}, config.CREDIT)
+                                                          'open_credit': self.open_credit},
+                                             config.CREDIT, config.SITE_TEXT)
         dialog = self.result_dialog
         if dialog is None:
             return

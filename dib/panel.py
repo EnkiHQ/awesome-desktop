@@ -1,4 +1,4 @@
-"""Windows made of plain Tk widgets: the main panel, the round-result dialog and the update dialog.
+"""Windows made of plain Tk widgets: the main panel, the shareable result window and the update dialog.
 
 Only widgets live here. The game logic stays in :mod:`dib.ui`, which fills the string
 variables and supplies the callbacks, so every window can also be previewed on its own.
@@ -7,8 +7,13 @@ The main panel is a single borderless toolbar with all actions visible.
 """
 from __future__ import annotations
 
+import os
 import tkinter as tk
 from tkinter import ttk
+
+from PIL import Image, ImageTk
+
+from . import card
 
 BG = '#0e1a18'
 CARD = '#152623'
@@ -181,70 +186,57 @@ class MainPanel:
 
 
 class ResultDialog:
-    """The round-end window: the numbers that matter, large, plus the ranking outcome.
+    """The round-end window: a preview of the shareable result card and the buttons to share it.
 
-    :meth:`update` takes a ``view`` dict and may be called every frame; widgets only change
-    when a value does. Keys: ``time``, ``average``, ``balls``, ``shots``, ``note`` and
+    :meth:`update` takes a ``view`` dict and may be called every frame; the card is only redrawn
+    when the view changes. Keys: ``time``, ``average``, ``balls``, ``shots``, ``note`` and
     ``rank`` (phase ``off`` / ``unavailable`` / ``skipped`` / ``pending`` / ``ok`` / ``error``).
     """
 
-    def __init__(self, root, callbacks, credit=''):
+    PREVIEW = (360, 450)  # a third of the card's real size
+
+    def __init__(self, root, callbacks, credit='', site=''):
         self.callbacks = callbacks
+        self.credit = credit
+        self.site = site
+        self.image = None
+        self.photo = None
+        self.last = None
+        self.folder = None
         self.top = tk.Toplevel(root)
         top = self.top
         top.title('清台完成')
         top.configure(bg=BG)
         top.transient(root)
         top.resizable(False, False)
-        self.vars = {name: tk.StringVar(top) for name in ('time', 'average', 'balls', 'shots', 'note', 'big', 'sub',
-                                                          'best', 'message')}
         shell = tk.Frame(top, bg=BG, padx=22, pady=18)
         shell.pack(fill='both', expand=True)
-        tk.Frame(shell, width=340, height=0, bg=BG).pack()
-        title = tk.Frame(shell, bg=BG)
-        title.pack(fill='x')
-        tk.Label(title, text='清台完成', font=(FONT, 11, 'bold'), fg=ACCENT, bg=BG).pack(side='left')
-        if credit:
-            link = tk.Label(title, text=credit, font=(FONT, 8), fg=MUTED, bg=BG, cursor='hand2')
-            link.pack(side='right', pady=(3, 0))
-            link.bind('<ButtonRelease-1>', lambda event: callbacks['open_credit']())
-        tk.Label(shell, textvariable=self.vars['time'], font=(NUMBERS, 34), fg=TEXT, bg=BG).pack(anchor='w', pady=(2, 0))
-        tk.Label(shell, text='总用时', font=(FONT, 8), fg=MUTED, bg=BG).pack(anchor='w')
 
-        tiles = tk.Frame(shell, bg=CARD, padx=14, pady=10)
-        tiles.pack(fill='x', pady=(12, 0))
-        for column, (title, name, size) in enumerate((('平均每颗（秒）', 'average', 17), ('图标', 'balls', 17),
-                                                      ('击球', 'shots', 17))):
-            tiles.columnconfigure(column, weight=1, uniform='tiles')
-            box = tk.Frame(tiles, bg=CARD)
-            box.grid(row=0, column=column, sticky='w')
-            tk.Label(box, text=title, font=(FONT, 8), fg=MUTED, bg=CARD).pack(anchor='w')
-            tk.Label(box, textvariable=self.vars[name], font=(NUMBERS, size), fg=TEXT, bg=CARD).pack(anchor='w')
-        tk.Label(shell, textvariable=self.vars['note'], font=(FONT, 8), fg=MUTED, bg=BG, anchor='w').pack(
-            fill='x', pady=(4, 0))
+        self.photo = ImageTk.PhotoImage(Image.new('RGB', self.PREVIEW, CARD), master=top)
+        self.preview = tk.Label(shell, image=self.photo, bg=BG, bd=0)
+        self.preview.pack()
 
-        self.rank_box = tk.Frame(shell, bg=CARD, padx=14, pady=12)
-        self.rank_box.pack(fill='x', pady=(12, 0))
-        tk.Label(self.rank_box, text='全球排名', font=(FONT, 8), fg=MUTED, bg=CARD).pack(anchor='w')
-        self.big = tk.Label(self.rank_box, textvariable=self.vars['big'], font=(NUMBERS, 24), fg=ACCENT, bg=CARD)
-        self.sub = tk.Label(self.rank_box, textvariable=self.vars['sub'], font=(FONT, 9), fg=TEXT, bg=CARD)
-        self.best = tk.Label(self.rank_box, textvariable=self.vars['best'], font=(FONT, 9), fg=MUTED, bg=CARD)
-        self.message = tk.Label(self.rank_box, textvariable=self.vars['message'], font=(FONT, 9), fg=MUTED, bg=CARD,
-                                justify='left', wraplength=300)
-        self.offer = Pill(self.rank_box, '开启全球排名', callbacks['enable_rank'], 'on', padx=12, pady=5)
+        share = tk.Frame(shell, bg=BG)
+        share.pack(fill='x', pady=(14, 0))
+        Pill(share, '保存图片', self.save, 'soft', padx=14).pack(side='left')
+        Pill(share, '复制图片', self.copy, 'soft', padx=14).pack(side='left', padx=(8, 0))
+        self.feedback_text = tk.StringVar(top)
+        self.feedback = tk.Label(share, textvariable=self.feedback_text, font=(FONT, 8), fg=MUTED, bg=BG,
+                                 anchor='w', justify='left', wraplength=150)
+        self.feedback.pack(side='left', padx=(10, 0))
+        self.feedback.bind('<ButtonRelease-1>', lambda event: self.open_folder())
 
-        buttons = tk.Frame(shell, bg=BG)
-        buttons.pack(fill='x', pady=(16, 0))
-        Pill(buttons, '再来一局', callbacks['again'], 'primary', bold=True, padx=18).pack(side='right')
-        Pill(buttons, '关闭', self.close, 'soft', padx=16).pack(side='right', padx=(0, 8))
+        actions = tk.Frame(shell, bg=BG)
+        actions.pack(fill='x', pady=(10, 0))
+        self.offer = Pill(actions, '开启全球排名', callbacks['enable_rank'], 'on', padx=12)
+        Pill(actions, '再来一局', callbacks['again'], 'primary', bold=True, padx=18).pack(side='right')
+        Pill(actions, '关闭', self.close, 'soft', padx=16).pack(side='right', padx=(0, 8))
         top.bind('<Escape>', lambda event: self.close())
         top.protocol('WM_DELETE_WINDOW', self.close)
-        self.last = None
-        self.phase = None
         top.update_idletasks()
         width = top.winfo_reqwidth()
         left = max(0, (top.winfo_screenwidth() - width) // 2)
-        top.geometry(f'+{left}+{max(20, top.winfo_screenheight() // 7)}')
+        top.geometry(f'+{left}+{max(10, top.winfo_screenheight() // 14)}')
         top.lift()
 
     def alive(self):
@@ -259,31 +251,45 @@ class ResultDialog:
         if not self.alive() or view == self.last:
             return
         self.last = view
-        for name in ('time', 'average', 'balls', 'shots', 'note'):
-            self.vars[name].set(view[name])
-        rank = view['rank']
-        phase = rank['phase']
-        for widget in (self.big, self.sub, self.best, self.message, self.offer):
-            widget.pack_forget()
-        if phase == 'unavailable':
-            self.rank_box.pack_forget()
+        self.image = card.render_card(view, credit=self.credit, site=self.site)
+        self.photo = ImageTk.PhotoImage(self.image.resize(self.PREVIEW, Image.Resampling.LANCZOS), master=self.top)
+        self.preview.configure(image=self.photo)
+        if view['rank']['phase'] == 'off':
+            self.offer.pack(side='left')
+        else:
+            self.offer.pack_forget()
+
+    def save(self):
+        if self.image is None:
             return
-        if not self.rank_box.winfo_manager():
-            self.rank_box.pack(fill='x', pady=(12, 0), before=self.rank_box.master.winfo_children()[-1])
-        if phase == 'ok':
-            self.vars['big'].set(rank['rank_text'])
-            self.vars['sub'].set(rank['percentile_text'])
-            self.vars['best'].set(rank['best_text'])
-            self.big.pack(anchor='w')
-            self.sub.pack(anchor='w')
-            self.best.configure(fg=ACCENT if rank.get('new_best') else MUTED)
-            self.best.pack(anchor='w', pady=(2, 0))
+        try:
+            path = card.save_card(self.image)
+        except OSError as error:
+            self._say(f'保存失败：{error}', MUTED)
             return
-        messages = {'pending': '正在提交成绩…', 'off': '全球排名未开启，开启后可以和其他玩家比较。'}
-        self.vars['message'].set(rank.get('message') or messages.get(phase, ''))
-        self.message.pack(anchor='w', pady=(4, 0))
-        if phase == 'off':
-            self.offer.pack(anchor='w', pady=(8, 0))
+        self.folder = path.parent
+        self._say('已保存，点此打开所在文件夹', ACCENT)
+
+    def copy(self):
+        if self.image is None:
+            return
+        try:
+            card.copy_card(self.image)
+        except Exception:  # the clipboard can be locked by another program
+            self._say('复制失败，请改用「保存图片」', WARN)
+            return
+        self._say('已复制，可直接粘贴到微信、QQ 或帖子里', ACCENT)
+
+    def open_folder(self):
+        if self.folder is not None:
+            try:
+                os.startfile(self.folder)
+            except OSError:
+                pass
+
+    def _say(self, text, colour):
+        self.feedback_text.set(text)
+        self.feedback.configure(fg=colour, cursor='hand2' if self.folder is not None and '点此' in text else 'arrow')
 
 
 def show_update_dialog(root, current, info, entries, on_download):
