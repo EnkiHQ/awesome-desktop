@@ -9,7 +9,7 @@ from pet.__main__ import send
 
 class CommandTests(unittest.TestCase):
     def test_known_actions_and_reject_unknown(self):
-        self.assertEqual(ACTIONS, ('type', 'click', 'idle'))
+        self.assertEqual(ACTIONS, ('type', 'click', 'idle', 'front', 'back'))
         received = []
 
         def serve(sock):

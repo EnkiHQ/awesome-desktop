@@ -2,4 +2,4 @@
 
 PORT = 8766
 HOLD_SECONDS = 0.22
-ACTIONS = ('type', 'click', 'idle')
+ACTIONS = ('type', 'click', 'idle', 'front', 'back')
