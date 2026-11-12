@@ -164,6 +164,17 @@ class Pet(QWidget):
         elif word == 'show':
             self.show()
             self.raise_()
+        elif word == 'snap':
+            out = state_file().with_name('snap.png')
+            self.grab().save(str(out))
+            extra = ''
+            if sys.platform == 'win32':
+                import ctypes
+
+                style = ctypes.windll.user32.GetWindowLongW(int(self.winId()), -20)
+                extra = f'，扩展样式 {style:#x}，分层 {bool(style & 0x80000)}'
+            print(f'画面已存到 {out}，窗口 {self.x()},{self.y()} {self.width()}x{self.height()}，可见 {self.isVisible()}{extra}',
+                  flush=True)
         elif word == 'quit':
             QApplication.instance().quit()
 
@@ -277,8 +288,13 @@ def main(argv=None):
     threading.Thread(target=serve, args=(sock, events), name='pet-control', daemon=True).start()
     pet = Pet(state, events)
     pet.show()
+    pet.raise_()
+    pet.remember()
     mode = hooks.start(events)
-    print(f'小人已启动，键盘鼠标监听：{mode or "无"}', flush=True)
+    area = QGuiApplication.primaryScreen().availableGeometry()
+    print(f'小人已启动，键盘鼠标监听：{mode or "无"}；窗口 {pet.x()},{pet.y()} {pet.width()}x{pet.height()}，'
+          f'可见 {pet.isVisible()}，屏幕可用区 {area.x()},{area.y()} {area.width()}x{area.height()}，'
+          f'缩放 {pet.devicePixelRatioF()}', flush=True)
     code = app.exec()
     pet.remember()
     sock.close()
