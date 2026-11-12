@@ -246,6 +246,22 @@ class DesktopBilliardsApp:
         show_update_dialog(self.root, config.VERSION, info, release_entries(info), download)
 
     # -- game lifecycle ----------------------------------------------------
+    def _net_link(self):
+        """Attach the shared online match when 联机.txt or the environment asks for one.
+
+        A failure here stays on the local table. Diagnostics record the reason.
+        """
+        try:
+            from arcade.link import link_from_env
+
+            link = link_from_env(config.BASE)
+        except Exception as exc:
+            diag.log(f'联机没有启用：{exc}')
+            return None
+        if link is not None:
+            diag.log(f'联机：{link.role} {link.message}')
+        return link
+
     def start(self):
         if self.closing:
             return
@@ -264,6 +280,7 @@ class DesktopBilliardsApp:
                 overlay = BilliardsOverlay(desktop, items)
                 overlay.guide_enabled = self.guide_enabled
                 overlay.want_felt = self.felt_enabled
+                overlay.link = self._net_link()
             self.watchdog = self.spawn_watchdog()
             self.runner = BilliardsRunner(overlay)
             self.runner.start()

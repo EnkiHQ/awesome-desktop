@@ -1,0 +1,9 @@
+图标游乐场包含 Desktop Icon Billiards 0.1.5。
+
+Desktop Icon Billiards
+Copyright (c) 2025-2026 LXG
+https://github.com/liuxiaogang-com/desktop-icon-billiards
+MIT License. The license text is in LICENSE.
+
+`dib/` is that project, with a small hook so a match can take turns.
+`arcade/` is the game list and the online match added in this fork, also under the MIT license in LICENSE.

@@ -1,3 +1,7 @@
+# 图标游乐场 · Icon Arcade
+
+这是 [桌面图标台球](https://github.com/liuxiaogang-com/desktop-icon-billiards) 0.1.5（MIT，Copyright (c) 2025–2026 LXG）的改版。台球还是原来的玩法；外面加了一层可以继续装别的桌面图标游戏的壳，以及两人轮流击球的联机。用法、房间码和下一款「弹砖」见 [游乐场.md](游乐场.md)。
+
 # 桌面图标台球 · Desktop Icon Billiards
 
 **把 Windows 桌面图标摆成一局台球。** 在桌面上移动鼠标瞄准，按住左键蓄力，松手击球。图标保留自己的缩略图，会滚动、碰撞和入袋。退出后，桌面恢复原样。

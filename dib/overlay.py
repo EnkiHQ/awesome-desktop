@@ -312,6 +312,9 @@ class BilliardsOverlay:
         self.transition = None
         self.restart_requested = threading.Event()
         self.pointer = TablePointer()
+        # None keeps the original local game. A NetLink turns this table into one side of a match.
+        self.link = None
+        self._guest_held = None
         self.table_windows = {}
         self.guide_enabled = True
         self.guide_key = None
@@ -580,9 +583,21 @@ class BilliardsOverlay:
                 self.restart_requested.clear()
                 self.table.reset()
                 self.pointer = TablePointer()
+                self._guest_held = None
                 self.drawn = [None] * len(self.items)
-            self.update_pointer(now)
-            self.table.step(dt, now)
+            link = self.link
+            if link is not None:
+                link.before(self.table, now)
+            # The guest draws the host's snapshot and does not run a second simulation.
+            guest = link is not None and link.role == 'guest' and link.peer_ready
+            if guest:
+                link.note_intent(self.sample_intent(now), now)
+            else:
+                if link is None or link.allow_local(self.table):
+                    self.update_pointer(now)
+                self.table.step(dt, now)
+            if link is not None:
+                link.after(self.table, now)
             self.draw_balls()
         self.draw_table()
         self.draw_guide()
@@ -613,6 +628,45 @@ class BilliardsOverlay:
         button = win32con.VK_RBUTTON if win32api.GetSystemMetrics(SM_SWAPBUTTON) else win32con.VK_LBUTTON
         down = bool(win32api.GetAsyncKeyState(button) & 0x8000)
         self.pointer.update(self.table, now, x, y, down, on_desktop)
+
+    def sample_intent(self, now):
+        """Read the guest's cue without moving the local simulation.
+
+        Coordinates are fractions of the table bounds, so the host can replay the
+        shot on a desktop of a different pixel size.
+        """
+        table = self.table
+        if table.state != 'ready' or table.shots % 2 != 1:
+            self._guest_held = None
+            return None
+        screen = win32gui.GetCursorPos()
+        x, y = win32gui.ScreenToClient(self.parent, screen)
+        left, top, right, bottom = table.bounds
+        on_desktop = False
+        if left <= x <= right and top <= y <= bottom:
+            hwnd = win32gui.WindowFromPoint(screen)
+            top_window = win32gui.GetAncestor(hwnd, win32con.GA_ROOT) if hwnd else 0
+            if top_window:
+                on_desktop = win32gui.GetClassName(top_window) in ('Progman', 'WorkerW')
+        button = win32con.VK_RBUTTON if win32api.GetSystemMetrics(SM_SWAPBUTTON) else win32con.VK_LBUTTON
+        down = bool(win32api.GetAsyncKeyState(button) & 0x8000)
+        if not on_desktop:
+            if self._guest_held is not None and not down:
+                self._guest_held = None
+            return None
+        width = right - left
+        height = bottom - top
+        intent = {'t': 'aim', 'u': (x - left) / width, 'v': (y - top) / height}
+        if down and self._guest_held is None:
+            self._guest_held = now
+        if self._guest_held is not None:
+            power = min(1.0, (now - self._guest_held) / 0.9)
+            intent['power'] = power
+            if not down:
+                self._guest_held = None
+                intent['t'] = 'shot'
+                intent['power'] = max(MIN_SHOT_CHARGE, power)
+        return intent
 
     # -- drawing -----------------------------------------------------------
     def draw_intro(self, now, dt):
@@ -858,6 +912,10 @@ class BilliardsOverlay:
         self.surfaces[hwnd].present(frame, x, y)
 
     def close(self):
+        link = getattr(self, 'link', None)
+        if link is not None:
+            link.close()
+            self.link = None
         if self.was_visible and win32gui.IsWindow(self.listview):
             win32gui.ShowWindow(self.listview, win32con.SW_SHOWNA)
         self.clear_table()
