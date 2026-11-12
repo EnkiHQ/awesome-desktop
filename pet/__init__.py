@@ -1,5 +1,4 @@
-"""Desktop person that mirrors a key or a click, or takes the same action from a command."""
+"""A desktop character that types when you type and clicks when you click."""
 
-PORT = 8766
-HOLD_SECONDS = 0.22
-ACTIONS = ('type', 'click', 'idle', 'front', 'back')
+PORT = 38766
+__version__ = '0.3.0'

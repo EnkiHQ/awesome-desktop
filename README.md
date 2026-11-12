@@ -2,6 +2,21 @@
 
 这是 [桌面图标台球](https://github.com/liuxiaogang-com/desktop-icon-billiards) 0.1.5（MIT，Copyright (c) 2025–2026 LXG）的改版。台球还是原来的玩法；另外有一个跟着键盘和鼠标动的桌面小人。用法见 [游乐场.md](游乐场.md)。
 
+## 桌面小人：你按键盘它按键盘，你按鼠标它按鼠标
+
+macOS 和 Windows 都能用，启动后和终端分开运行，关掉终端或 AI 助手也不会消失。
+
+```bash
+uv tool install "awesome-desktop @ https://github.com/EnkiHQ/awesome-desktop/archive/refs/heads/main.zip"
+awesome-pet start
+```
+
+把下面这段发给千问、Claude、Codex 等能在电脑上执行命令的 AI 助手，它会照着装好并启动：
+
+> 按 https://github.com/EnkiHQ/awesome-desktop/blob/main/pet/SKILL.md 的说明，在我这台电脑上安装并启动桌面小人。
+
+换成自己的头像、面朝你还是背朝你、拖动和缩放，都在 [游乐场.md](游乐场.md#小人)。
+
 # 桌面图标台球 · Desktop Icon Billiards
 
 **把 Windows 桌面图标摆成一局台球。** 在桌面上移动鼠标瞄准，按住左键蓄力，松手击球。图标保留自己的缩略图，会滚动、碰撞和入袋。退出后，桌面恢复原样。
