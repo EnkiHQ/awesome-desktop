@@ -16,7 +16,7 @@ def preview(name, out, zoom=1.5):
     art = Art(data)
     shots = []
     for facing in [f for f in ('front', 'back') if f in data.views]:
-        for pose, label in (('idle', '待命'), ('type', '敲键盘'), ('click', '按鼠标')):
+        for pose, label in (('idle', 'idle'), ('type', 'typing'), ('click', 'mouse')):
             scene = Scene(data, facing, seed=3)
             t = 0.0
             scene.cursor_at(0.5, 0.5, t)
@@ -32,7 +32,7 @@ def preview(name, out, zoom=1.5):
             for _ in range(20):
                 t += 1 / 60
                 scene.step(t, 1 / 60)
-            shots.append((f'{"正面" if facing == "front" else "背面"} {label}', render_image(scene, art, zoom)))
+            shots.append((f'{facing} · {label}', render_image(scene, art, zoom)))
     cell_w, cell_h = int(W * zoom), int(H * zoom)
     columns = 3
     rows = (len(shots) + columns - 1) // columns
