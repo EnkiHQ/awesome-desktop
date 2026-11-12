@@ -19,7 +19,7 @@ SNAP_INTERVAL = 0.05
 
 
 def _room_file(text):
-    path = Path(tempfile.gettempdir()) / 'icon-arcade-room.txt'
+    path = Path(tempfile.gettempdir()) / 'awesome-desktop-room.txt'
     path.write_text(text, encoding='utf-8')
     return path
 
@@ -269,7 +269,7 @@ def link_from_env(base=None):
         link = NetLink('host', peer=Peer(sock))
         link.message = f'中继房间 {code}'
         _room_file(f'中继开房\n房间 {code}\n中继 {_address}\n对方写：中继加入 {code} {_address}\n')
-        print(f'图标游乐场房间 {code}  中继 {_address}', flush=True)
+        print(f'awesome-desktop 房间 {code}  中继 {_address}', flush=True)
         return link
     if kind == 'relay-join':
         _address, code = choice[1], choice[2]

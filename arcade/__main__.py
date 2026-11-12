@@ -1,7 +1,7 @@
 """``python -m arcade`` prints the games. ``python -m arcade relay [端口]`` runs the room relay."""
 import sys
 
-from . import SUITE_NAME, SUITE_NAME_EN, __version__
+from . import SUITE_NAME, __version__
 from .games import GAMES
 
 
@@ -11,12 +11,12 @@ def main(argv):
 
         port = int(argv[2]) if len(argv) > 2 else 8770
         serve_relay(port)
-        print(f'{SUITE_NAME}中继已在 {port} 端口等待房间', flush=True)
+        print(f'{SUITE_NAME} 中继已在 {port} 端口等待房间', flush=True)
         try:
             threading_wait()
         except KeyboardInterrupt:
             return 0
-    print(f'{SUITE_NAME} {SUITE_NAME_EN} {__version__}')
+    print(f'{SUITE_NAME} {__version__}')
     for game in GAMES:
         state = '可玩' if game.playable else '以后做'
         print(f'- {game.name}（{state}）{game.summary}')
