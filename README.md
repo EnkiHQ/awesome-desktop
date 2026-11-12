@@ -15,6 +15,8 @@ awesome-pet start
 
 > 按 https://github.com/EnkiHQ/awesome-desktop/blob/main/pet/SKILL.md 的说明，在我这台电脑上安装并启动桌面小人。
 
+自带两个形象：小码（原创）和泡泡（《飞天小女警》泡泡的非官方同人）。想要泡泡就在那句话后面加「形象用 bubbles」，或者自己运行 `awesome-pet start --pet bubbles`。
+
 换成自己的头像、面朝你还是背朝你、拖动和缩放，都在 [游乐场.md](游乐场.md#小人)。
 
 # 桌面图标台球 · Desktop Icon Billiards

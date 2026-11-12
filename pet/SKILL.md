@@ -18,6 +18,8 @@ awesome-pet start
 
 If `awesome-pet` is not on PATH, run it from `$(uv tool dir --bin)`. `start` returns at once and the character keeps running after the shell or agent exits. It must run in the user's normal desktop session (not inside a container or a sandbox without screen access).
 
+Built-in characters: `default` (小码, an original kid coder) and `bubbles` (泡泡, unofficial fan art of Bubbles from The Powerpuff Girls). Pick one with `awesome-pet start --pet bubbles`.
+
 ## Control
 
 ```bash
@@ -49,4 +51,4 @@ A character is a folder with `pet.json`, `front.png` and `back.png`. The body pi
 3. `awesome-pet preview --pet NAME --out preview.png` and look at the six poses. If an arm starts in the wrong place, edit `shoulders` (pixel positions in the picture) in `pet.json`; `desk` is the height where the desk covers the front body.
 4. `awesome-pet start --pet NAME` (or `awesome-pet act pet NAME` if it is already running).
 
-To give a character to someone else: `awesome-pet pack export NAME` writes `NAME.zip`; on the other computer run `awesome-pet pack add NAME.zip`. Do not publish characters based on someone else's copyrighted design.
+To give a character to someone else: `awesome-pet pack export NAME` writes `NAME.zip`; on the other computer run `awesome-pet pack add NAME.zip`. Label characters drawn after someone else's design as unofficial fan art.

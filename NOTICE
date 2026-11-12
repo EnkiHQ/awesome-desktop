@@ -7,3 +7,7 @@ MIT License. The license text is in LICENSE.
 
 `dib/` is that project, with a small hook so a match can take turns.
 `arcade/` is the game list and the online match added in this fork, also under the MIT license in LICENSE.
+
+`pet/assets/bubbles/` is unofficial fan art of Bubbles from The Powerpuff Girls, for non-commercial use.
+The character belongs to its rights holders (Cartoon Network / Warner Bros. Discovery); this project is not
+affiliated with or endorsed by them. The MIT license covers the code, not that character.
