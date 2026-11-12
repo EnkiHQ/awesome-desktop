@@ -13,7 +13,18 @@ from pet import ACTIONS, PORT
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'pet' / 'MirrorPet.swift'
-BINARY = ROOT / 'pet' / 'bin' / 'MirrorPet'
+APP = ROOT / 'pet' / 'bin' / 'MirrorPet.app'
+BINARY = APP / 'Contents' / 'MacOS' / 'MirrorPet'
+PLIST = '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>MirrorPet</string>
+<key>CFBundleIdentifier</key><string>com.enkihq.awesome-desktop.pet</string>
+<key>CFBundleName</key><string>MirrorPet</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSUIElement</key><true/>
+</dict></plist>
+'''
 
 
 def send(action, port=PORT, timeout=1):
@@ -33,13 +44,13 @@ def running(port=PORT):
 
 def compile_binary():
     BINARY.parent.mkdir(parents=True, exist_ok=True)
-    if BINARY.exists() and BINARY.stat().st_mtime >= SOURCE.stat().st_mtime:
-        return BINARY
-    subprocess.run(
-        ['swiftc', '-O', '-framework', 'AppKit', '-framework', 'Network', '-o', str(BINARY), str(SOURCE)],
-        check=True,
-    )
-    return BINARY
+    (APP / 'Contents').joinpath('Info.plist').write_text(PLIST, encoding='utf-8')
+    if not BINARY.exists() or BINARY.stat().st_mtime < SOURCE.stat().st_mtime:
+        subprocess.run(
+            ['swiftc', '-O', '-framework', 'AppKit', '-framework', 'ApplicationServices', '-framework', 'Network', '-o', str(BINARY), str(SOURCE)],
+            check=True,
+        )
+    return APP
 
 
 def main(argv):
@@ -57,8 +68,8 @@ def main(argv):
     if running():
         print(f'小人已经在屏幕上。另开一条命令：python3 -m pet act type')
         return 0
-    binary = compile_binary()
-    raise SystemExit(subprocess.call([str(binary), str(ROOT)]))
+    app = compile_binary()
+    raise SystemExit(subprocess.call(['open', str(app), '--args', str(ROOT)]))
 
 
 if __name__ == '__main__':

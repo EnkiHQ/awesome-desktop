@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import Network
@@ -19,6 +20,9 @@ final class PetApp: NSObject, NSApplicationDelegate {
     var until = Date.distantPast
     var listener: NWListener?
     var tap: CFMachPort?
+    var monitors: [Any] = []
+    var keyCount = 0
+    var mouseCount = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let saved = UserDefaults.standard.string(forKey: "awesome-desktop.facing"), saved == "back" {
@@ -29,8 +33,10 @@ final class PetApp: NSObject, NSApplicationDelegate {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.level = .floating
-        window.ignoresMouseEvents = true
+        window.ignoresMouseEvents = false
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        restoreFrame()
+        view.autoresizingMask = [.width, .height]
         window.hasShadow = false
         view.pet = self
         window.contentView = view
@@ -38,13 +44,74 @@ final class PetApp: NSObject, NSApplicationDelegate {
 
         Timer.scheduledTimer(withTimeInterval: 1.0 / 12.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            if self.pose != "idle", Date() >= self.until {
+            if self.keyCount == 0, self.mouseCount == 0, self.pose != "idle", Date() >= self.until {
                 self.pose = "idle"
             }
             self.view.needsDisplay = true
         }
+        requestAccess()
         installTap()
+        installMonitors()
         installServer()
+    }
+
+    func restoreFrame() {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "pet.w") != nil else { return }
+        let frame = NSRect(
+            x: defaults.double(forKey: "pet.x"),
+            y: defaults.double(forKey: "pet.y"),
+            width: defaults.double(forKey: "pet.w"),
+            height: defaults.double(forKey: "pet.h")
+        )
+        if frame.width > 80, frame.height > 80 {
+            window.setFrame(frame, display: true)
+            view.frame = NSRect(origin: .zero, size: frame.size)
+        }
+    }
+
+    func saveFrame() {
+        let frame = window.frame
+        let defaults = UserDefaults.standard
+        defaults.set(Double(frame.origin.x), forKey: "pet.x")
+        defaults.set(Double(frame.origin.y), forKey: "pet.y")
+        defaults.set(Double(frame.width), forKey: "pet.w")
+        defaults.set(Double(frame.height), forKey: "pet.h")
+    }
+
+    func noteKey(down: Bool, code: Int64) {
+        if code == 111 {
+            if down { act(facing == "front" ? "back" : "front") }
+            return
+        }
+        if down { keyCount += 1 } else { keyCount = max(0, keyCount - 1) }
+        followHands()
+    }
+
+    func noteMouse(down: Bool) {
+        if down { mouseCount += 1 } else { mouseCount = max(0, mouseCount - 1) }
+        followHands()
+    }
+
+    func followHands() {
+        if mouseCount > 0 {
+            pose = "click"
+            until = Date.distantFuture
+        } else if keyCount > 0 {
+            pose = "type"
+            until = Date.distantFuture
+        } else {
+            until = Date().addingTimeInterval(0.2)
+        }
+        view.needsDisplay = true
+    }
+
+    func requestAccess() {
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let options = [key: true] as CFDictionary
+        if !AXIsProcessTrustedWithOptions(options) {
+            fputs("要跟着真实键盘和鼠标，请在弹出的辅助功能设置里允许 MirrorPet。\n", stderr)
+        }
     }
 
     func act(_ name: String) {
@@ -64,8 +131,11 @@ final class PetApp: NSObject, NSApplicationDelegate {
 
     func installTap() {
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+            | CGEventMask(1 << CGEventType.keyUp.rawValue)
             | CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
+            | CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
             | CGEventMask(1 << CGEventType.rightMouseDown.rawValue)
+            | CGEventMask(1 << CGEventType.rightMouseUp.rawValue)
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -73,15 +143,13 @@ final class PetApp: NSObject, NSApplicationDelegate {
             eventsOfInterest: mask,
             callback: { _, type, event, _ in
                 if type == .keyDown {
-                    let code = event.getIntegerValueField(.keyboardEventKeycode)
-                    if code == 111 {
-                        let next = PetBox.shared?.facing == "front" ? "back" : "front"
-                        PetBox.shared?.act(next)
-                    } else {
-                        PetBox.shared?.act("type")
-                    }
+                    PetBox.shared?.noteKey(down: true, code: event.getIntegerValueField(.keyboardEventKeycode))
+                } else if type == .keyUp {
+                    PetBox.shared?.noteKey(down: false, code: event.getIntegerValueField(.keyboardEventKeycode))
                 } else if type == .leftMouseDown || type == .rightMouseDown {
-                    PetBox.shared?.act("click")
+                    PetBox.shared?.noteMouse(down: true)
+                } else if type == .leftMouseUp || type == .rightMouseUp {
+                    PetBox.shared?.noteMouse(down: false)
                 }
                 return Unmanaged.passUnretained(event)
             },
@@ -94,6 +162,25 @@ final class PetApp: NSObject, NSApplicationDelegate {
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    func installMonitors() {
+        let down = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { event in
+            if event.type == .keyDown {
+                PetBox.shared?.noteKey(down: true, code: Int64(event.keyCode))
+            } else {
+                PetBox.shared?.noteMouse(down: true)
+            }
+        }
+        let up = NSEvent.addGlobalMonitorForEvents(matching: [.keyUp, .leftMouseUp, .rightMouseUp]) { event in
+            if event.type == .keyUp {
+                PetBox.shared?.noteKey(down: false, code: Int64(event.keyCode))
+            } else {
+                PetBox.shared?.noteMouse(down: false)
+            }
+        }
+        if let down { monitors.append(down) }
+        if let up { monitors.append(up) }
     }
 
     func installServer() {
@@ -168,18 +255,48 @@ final class PetView: NSView {
     required init?(coder: NSCoder) { nil }
 
     override var isOpaque: Bool { false }
+    private var dragStart = NSPoint.zero
+    private var frameStart = NSRect.zero
+
+    override func mouseDown(with event: NSEvent) {
+        dragStart = NSEvent.mouseLocation
+        frameStart = window?.frame ?? .zero
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let now = NSEvent.mouseLocation
+        window?.setFrameOrigin(NSPoint(x: frameStart.origin.x + now.x - dragStart.x, y: frameStart.origin.y + now.y - dragStart.y))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        pet?.saveFrame()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let window else { return }
+        let scale = event.deltaY == 0 ? 1 : (event.deltaY > 0 ? 1.08 : 0.92)
+        var frame = window.frame
+        let width = min(980, max(150, frame.width * scale))
+        let height = width * frame.height / frame.width
+        let center = NSPoint(x: frame.midX, y: frame.midY)
+        frame.size = NSSize(width: width, height: height)
+        frame.origin = NSPoint(x: center.x - width / 2, y: center.y - height / 2)
+        window.setFrame(frame, display: true)
+        pet?.saveFrame()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.setFill()
         dirtyRect.fill()
         let pose = pet?.pose ?? "idle"
         let facing = pet?.facing ?? "front"
+        let frame = Int(Date().timeIntervalSinceReferenceDate * 12)
         let action = (pose == "type" || pose == "click") ? pose : "idle"
         if let sprite = sprites["\(facing)-\(action)"] {
-            sprite.draw(in: bounds.insetBy(dx: 6, dy: 6), from: .zero, operation: .sourceOver, fraction: 1)
+            let bump: CGFloat = pose == "type" ? (frame % 2 == 0 ? 0 : -14) : (pose == "click" ? (frame % 2 == 0 ? 0 : -10) : 0)
+            sprite.draw(in: bounds.insetBy(dx: 6, dy: 6).offsetBy(dx: 0, dy: bump), from: .zero, operation: .sourceOver, fraction: 1)
             return
         }
-        let frame = Int(Date().timeIntervalSinceReferenceDate * 12)
         if facing == "back" {
             drawBack(pose: pose, frame: frame)
         } else if cutout != nil {
